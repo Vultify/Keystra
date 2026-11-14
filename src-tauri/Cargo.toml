@@ -36,3 +36,4 @@ strip = true
 
 [dev-dependencies]
 strum = { version = "0.28.0", features = ["derive"] }
+ts-rs = "12.0.1"

@@ -19,7 +19,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Diagnostics page that shows the keyboard's current settings and the raw bytes behind them.
 - Command allowlist, with firmware update, bootloader, reset and calibration commands blocked in code.
 - Crash logging to a rotating log file, and a recovery screen if the window crashes.
-- Warning when MagCrate is running, since both apps share the keyboard's reply channel, plus retries that recover when the two apps' replies get mixed up.
+- Warning when MagCrate is running, since both apps share the keyboard's reply channel, plus retries that recover when the two apps' replies get mixed up. A softer note appears when only MagCrate's leftover background helper is running.
 - Lighting mode names match MagCrate's, and Music Sync's rainbow and color settings read correctly.
 - The never-send list is checked again on the exact bytes at the moment they're sent.
 - A keyboard that fails to answer is retried after a growing wait instead of every second.
+- The screens' TypeScript types and shared constants are generated from the Rust code, so the two sides can't drift apart.
+- Saved profiles: lighting, polling rate, onboard profile and linked games, stored safely on this PC with a versioned format. The Diagnostics page can save the keyboard's current settings as a profile.
+- A profiles file that isn't valid JSON is kept as a backup and replaced. Any other problem with it leaves the file untouched and shows profiles as read-only. Saves are flushed to disk before they replace the old file.

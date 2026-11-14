@@ -12,7 +12,7 @@ I built Keystra because the official software is confusing to use, has no easy w
 
 ## Status
 
-Early development. Keystra finds the keyboard over USB and reads its current settings; changing settings comes next. See [ROADMAP.md](ROADMAP.md) for the build order.
+Early development. Keystra finds the keyboard over USB, reads its current settings, and saves them as profiles on this PC. Changing the keyboard's settings comes next. See [ROADMAP.md](ROADMAP.md) for the build order.
 
 ## Planned features
 
@@ -25,6 +25,11 @@ Early development. Keystra finds the keyboard over USB and reads its current set
 
 Keystra never sends firmware updates. It only sends commands that have been decoded and tested, and it blocks everything else in code.
 
+## Where Keystra keeps its files
+
+- Profiles: `%APPDATA%\com.vultify.keystra\profiles.json`. If that file is ever not valid JSON, Keystra keeps it next to the new one as `profiles.damaged-<number>.json`. If it is valid JSON but can't be used, Keystra leaves it alone and shows your profiles as read-only.
+- Logs: `%LOCALAPPDATA%\com.vultify.keystra\logs\keystra.log`
+
 ## Building from source
 
 You need Node.js 24, Rust (stable, MSVC), and the Visual Studio C++ Build Tools.
@@ -34,10 +39,16 @@ npm install
 npm run tauri dev
 ```
 
-To run the tests:
+To run the tests (this also regenerates the screens' TypeScript types in `src/lib/bindings` from the Rust types):
 
 ```bash
-cargo test --manifest-path src-tauri/Cargo.toml
+npm test
+```
+
+To check that the committed types still match the Rust code (fails on changed, new or leftover files):
+
+```bash
+npm run check:bindings
 ```
 
 To build the Windows installer:

@@ -1,31 +1,46 @@
 //! Spots other apps that use the keyboard's settings channel, like MagCrate. The keyboard has one
 //! reply slot, so two apps asking at once can pick up each other's answers.
 
+use serde::Serialize;
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
 
-/// True while MagCrate or its USB helper is running. Reads names from a one-off process snapshot,
-/// so no process is ever opened and nothing is kept between checks.
-pub fn magcrate_running() -> bool {
+/// What of MagCrate is running. Its helper (iot_driver) can outlive the app and usually sits idle,
+/// so it gets a softer warning than MagCrate itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "camelCase")]
+pub enum MagCrateState {
+    Closed,
+    HelperOnly,
+    Open,
+}
+
+/// Looks for MagCrate in a one-off process snapshot, so no process is ever opened and nothing is
+/// kept between checks.
+pub fn magcrate_state() -> MagCrateState {
     let Some(snapshot) = Snapshot::take() else {
-        return false;
+        return MagCrateState::Closed;
     };
     let mut entry = PROCESSENTRY32W {
         dwSize: size_of::<PROCESSENTRY32W>() as u32,
         ..Default::default()
     };
+    let mut state = MagCrateState::Closed;
     // SAFETY: the snapshot handle is valid until dropped, and `entry` is a correctly sized struct.
     let mut more = unsafe { Process32FirstW(snapshot.0, &mut entry) } != 0;
     while more {
-        if is_magcrate(&exe_name(&entry.szExeFile)) {
-            return true;
+        match classify(&exe_name(&entry.szExeFile)) {
+            MagCrateState::Open => return MagCrateState::Open,
+            MagCrateState::HelperOnly => state = MagCrateState::HelperOnly,
+            MagCrateState::Closed => {}
         }
         // SAFETY: same as above.
         more = unsafe { Process32NextW(snapshot.0, &mut entry) } != 0;
     }
-    false
+    state
 }
 
 /// A Windows process snapshot handle, closed when dropped.
@@ -51,9 +66,16 @@ fn exe_name(raw: &[u16]) -> String {
     String::from_utf16_lossy(&raw[..len])
 }
 
-fn is_magcrate(process_name: &str) -> bool {
+/// Sorts one process name: MagCrate's app, its USB helper, or something else.
+fn classify(process_name: &str) -> MagCrateState {
     let name = process_name.to_ascii_lowercase();
-    name.contains("magcrate") || name.starts_with("iot_driver")
+    if name.contains("magcrate") {
+        MagCrateState::Open
+    } else if name.starts_with("iot_driver") {
+        MagCrateState::HelperOnly
+    } else {
+        MagCrateState::Closed
+    }
 }
 
 #[cfg(test)]
@@ -61,11 +83,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recognizes_magcrate_and_its_helper() {
-        assert!(is_magcrate("MagCrate Driver.exe"));
-        assert!(is_magcrate("iot_driver_v207.exe"));
-        assert!(!is_magcrate("keystra.exe"));
-        assert!(!is_magcrate("explorer.exe"));
+    fn tells_magcrate_apart_from_its_helper() {
+        assert_eq!(classify("MagCrate Driver.exe"), MagCrateState::Open);
+        assert_eq!(classify("iot_driver_v207.exe"), MagCrateState::HelperOnly);
+        assert_eq!(classify("keystra.exe"), MagCrateState::Closed);
+        assert_eq!(classify("explorer.exe"), MagCrateState::Closed);
     }
 
     #[test]
@@ -80,6 +102,6 @@ mod tests {
     #[test]
     fn snapshot_scan_runs() {
         // Smoke test against the real system: must not crash, and this test runner isn't MagCrate.
-        let _ = magcrate_running();
+        let _ = magcrate_state();
     }
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { RefreshCwIcon, TriangleAlertIcon, UsbIcon } from "lucide-react";
+import { InfoIcon, RefreshCwIcon, TriangleAlertIcon, UsbIcon } from "lucide-react";
 
+import { SavedProfilesCard } from "@/components/saved-profiles-card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,12 +16,15 @@ import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   formatFirmware,
-  LEVEL_MAX,
+  MAX_LEVEL,
+  onboardSlotLabel,
   readKeyboard,
   toHex,
   type KeyboardStatus,
+  type MagCrateState,
   type Snapshot,
 } from "@/lib/keyboard";
+import { lightingModeName } from "@/lib/lighting";
 import { logError } from "@/lib/logging";
 
 type Row = { label: string; value: ReactNode };
@@ -28,17 +32,17 @@ type Row = { label: string; value: ReactNode };
 function settingsRows(snapshot: Snapshot): Row[] {
   const { lighting } = snapshot;
   return [
-    { label: "Profile", value: `Profile ${snapshot.profile + 1}` },
+    { label: "Profile", value: onboardSlotLabel(snapshot.onboardSlot) },
     {
       label: "Polling rate",
       value: snapshot.pollingRate ? `${snapshot.pollingRate} Hz` : "Unknown",
     },
     {
       label: "Lighting effect",
-      value: `${lighting.modeName ?? "Unknown"} (mode ${lighting.modeId})`,
+      value: lightingModeName(lighting.modeId),
     },
-    { label: "Brightness", value: `${lighting.brightness} of ${LEVEL_MAX}` },
-    { label: "Speed", value: `${lighting.speed} of ${LEVEL_MAX}` },
+    { label: "Brightness", value: `${lighting.brightness} of ${MAX_LEVEL}` },
+    { label: "Speed", value: `${lighting.speed} of ${MAX_LEVEL}` },
     { label: "Color", value: <LightingColor lighting={lighting} /> },
     { label: "Direction", value: String(lighting.direction) },
   ];
@@ -88,16 +92,7 @@ export function DiagnosticsScreen({ status }: { status: KeyboardStatus | null })
 
   return (
     <div className="flex flex-col gap-6">
-      {connected && status.magcrateOpen && (
-        <Alert>
-          <TriangleAlertIcon />
-          <AlertTitle>MagCrate is running</AlertTitle>
-          <AlertDescription>
-            MagCrate and Keystra share the same line to your keyboard, so their replies can get mixed up. Close
-            MagCrate, including its icon in the system tray, while you use Keystra.
-          </AlertDescription>
-        </Alert>
-      )}
+      {connected && <MagCrateNotice state={status.magcrate} />}
 
       <ConnectionCard status={status} />
 
@@ -136,6 +131,8 @@ export function DiagnosticsScreen({ status }: { status: KeyboardStatus | null })
         </Card>
       )}
 
+      <SavedProfilesCard connected={connected} />
+
       {connected && snapshot && (
         <Card>
           <CardHeader>
@@ -168,6 +165,36 @@ export function DiagnosticsScreen({ status }: { status: KeyboardStatus | null })
       )}
     </div>
   );
+}
+
+// MagCrate shares the keyboard's single reply slot. The app itself is a real risk; its leftover
+// background helper usually sits idle, so it gets a softer note.
+function MagCrateNotice({ state }: { state: MagCrateState }) {
+  if (state === "open") {
+    return (
+      <Alert>
+        <TriangleAlertIcon />
+        <AlertTitle>MagCrate is running</AlertTitle>
+        <AlertDescription>
+          MagCrate and Keystra share the same line to your keyboard, so their replies can get mixed up. Close
+          MagCrate, including its icon in the system tray, while you use Keystra.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+  if (state === "helperOnly") {
+    return (
+      <Alert>
+        <InfoIcon />
+        <AlertTitle>MagCrate's background helper is still running</AlertTitle>
+        <AlertDescription>
+          It stays behind after MagCrate closes and is usually harmless. If readings ever look wrong, end
+          iot_driver in Task Manager. MagCrate starts it again when you open MagCrate.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+  return null;
 }
 
 function ConnectionCard({ status }: { status: KeyboardStatus | null }) {

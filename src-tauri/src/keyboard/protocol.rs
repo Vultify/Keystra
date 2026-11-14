@@ -13,10 +13,9 @@ pub const USAGE: u16 = 0x0002;
 /// Length of a report, not counting the report ID byte hidapi adds in front.
 pub const REPORT_LEN: usize = 64;
 
-/// Command bytes that must never reach the keyboard: reset, calibration, bootloaders,
-/// flash and firmware upgrade paths. A second guard behind [`Command`]: checked when a request is
-/// built and again on the outgoing bytes at the send point. Several have the high bit set, so the
-/// high bit never proves a command is a harmless read.
+/// Command bytes that must never reach the keyboard (reset, calibration, bootloaders, flash and
+/// firmware upgrades), checked when a request is built and again on the bytes at the send point.
+/// Several have the high bit set, so the high bit never proves a command is a harmless read.
 pub const BLOCKED_COMMANDS: [u8; 15] = [
     0x01, // factory reset
     0x1C, 0x1E, // magnetism calibration
@@ -37,9 +36,10 @@ pub enum Checksum {
     Bit8,
 }
 
-/// The only commands Keystra can send. Phase 2 is read-only, so every variant is a GET.
+/// The only commands Keystra can send. For now every variant is a GET.
 // Tests list the variants with strum's EnumIter, so a new command can't slip past the safety tests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[cfg_attr(test, derive(strum::EnumIter))]
 #[serde(rename_all = "camelCase")]
 #[allow(clippy::enum_variant_names)] // Set commands join these in Phase 4.
@@ -96,8 +96,8 @@ pub fn build_request(command: Command) -> Result<[u8; REPORT_LEN], KeyboardError
     Ok(report)
 }
 
-/// Refuses outgoing bytes whose command is on the never-send list. `report` starts with the
-/// report ID, so the command is byte 1. Runs at the send point, so it covers any future builder too.
+/// Refuses outgoing bytes whose command is on the never-send list, at the send point so it covers
+/// any future builder too. `report` starts with the report ID, so the command is byte 1.
 pub fn guard_outgoing(report: &[u8]) -> Result<(), KeyboardError> {
     match report.get(1) {
         Some(id) if BLOCKED_COMMANDS.contains(id) => Err(KeyboardError::Blocked(*id)),

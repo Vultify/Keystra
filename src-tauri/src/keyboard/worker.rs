@@ -11,7 +11,7 @@ use hidapi::HidApi;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use super::conflicts;
+use super::conflicts::{self, MagCrateState};
 use super::error::KeyboardError;
 use super::protocol::{Command, PRODUCT_ID, USAGE, USAGE_PAGE, VENDOR_ID};
 use super::settings::{self, DeviceInfo, Lighting};
@@ -38,21 +38,24 @@ const BUSY_MESSAGE: &str = "the keyboard is busy, another app may be using it";
 pub const STATUS_EVENT: &str = "keyboard-status";
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum KeyboardStatus {
     Disconnected,
-    /// `magcrate_open` warns that MagCrate shares the keyboard and can mix up replies.
-    Connected { info: DeviceInfo, magcrate_open: bool },
+    /// `magcrate` warns when MagCrate, which shares the keyboard and can mix up replies, is running.
+    Connected { info: DeviceInfo, magcrate: MagCrateState },
     Unsupported { device_id: u32 },
     Error { message: String },
 }
 
-/// Everything Keystra can read in Phase 2, plus the raw bytes behind it.
+/// Everything Keystra reads from the keyboard, plus the raw bytes behind it.
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub info: DeviceInfo,
-    pub profile: u8,
+    /// The active onboard profile, counting from 0.
+    pub onboard_slot: u8,
     pub polling_rate: Option<u32>,
     pub lighting: Lighting,
     pub exchanges: Vec<Exchange>,
@@ -79,7 +82,7 @@ impl KeyboardHandle {
             api: None,
             device: None,
             skips: Skips::default(),
-            magcrate_open: false,
+            magcrate: MagCrateState::Closed,
             polls: 0,
         };
         thread::Builder::new()
@@ -93,7 +96,7 @@ impl KeyboardHandle {
         self.status.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
-    /// Reads every Phase 2 setting in one go. Blocks until the worker answers.
+    /// Reads every setting Keystra knows in one go. Blocks until the worker answers.
     pub fn read_all(&self) -> Result<Snapshot, KeyboardError> {
         let (reply, answer) = mpsc::channel();
         self.jobs.send(Job::ReadAll(reply)).map_err(|_| KeyboardError::WorkerStopped)?;
@@ -194,7 +197,7 @@ struct Worker {
     api: Option<HidApi>,
     device: Option<Connected>,
     skips: Skips,
-    magcrate_open: bool,
+    magcrate: MagCrateState,
     polls: u32,
 }
 
@@ -250,16 +253,16 @@ impl Worker {
     }
 
     fn check_conflicts(&mut self) {
-        let open = conflicts::magcrate_running();
-        if open == self.magcrate_open {
+        let state = conflicts::magcrate_state();
+        if state == self.magcrate {
             return;
         }
-        self.magcrate_open = open;
-        log::info!("MagCrate is {}", if open { "running" } else { "closed" });
+        self.magcrate = state;
+        log::info!("MagCrate is now {state:?}");
         if let Some(device) = &self.device {
             self.set_status(KeyboardStatus::Connected {
                 info: device.info.clone(),
-                magcrate_open: open,
+                magcrate: state,
             });
         }
     }
@@ -290,7 +293,7 @@ impl Worker {
                 );
                 self.set_status(KeyboardStatus::Connected {
                     info: info.clone(),
-                    magcrate_open: self.magcrate_open,
+                    magcrate: self.magcrate,
                 });
                 self.skips.clear_failures();
                 self.device = Some(Connected { transport, path, info });
@@ -357,20 +360,20 @@ impl Worker {
     }
 }
 
-/// Runs the Phase 2 reads in a fixed order and parses each reply.
+/// Runs the reads in a fixed order and parses each reply.
 fn read_settings(transport: &mut dyn Transport, info: DeviceInfo) -> Result<Snapshot, KeyboardError> {
     let device = transport::exchange(transport, Command::GetDeviceInfo)?;
-    let profile = transport::exchange(transport, Command::GetProfile)?;
+    let slot = transport::exchange(transport, Command::GetProfile)?;
     let polling = transport::exchange(transport, Command::GetPollingRate)?;
     let lighting = transport::exchange(transport, Command::GetLighting)?;
 
     let fresh_info = settings::parse_device_info(&device.reply).unwrap_or(info);
     Ok(Snapshot {
         info: fresh_info,
-        profile: settings::parse_profile(&profile.reply)?,
+        onboard_slot: settings::parse_onboard_slot(&slot.reply)?,
         polling_rate: settings::parse_polling_rate(&polling.reply)?,
         lighting: settings::parse_lighting(&lighting.reply)?,
-        exchanges: vec![device, profile, polling, lighting],
+        exchanges: vec![device, slot, polling, lighting],
     })
 }
 
@@ -409,7 +412,7 @@ mod tests {
         let info = settings::parse_device_info(&[0x8F, 0xBE, 0x09, 0, 0, 0, 0, 0x04, 0x01]).unwrap();
         let snapshot = read_settings(&mut FakeSession { last: 0 }, info).unwrap();
         assert_eq!(snapshot.info.device_id, 2494);
-        assert_eq!(snapshot.profile, 0);
+        assert_eq!(snapshot.onboard_slot, 0);
         assert_eq!(snapshot.polling_rate, Some(2000));
         assert_eq!(snapshot.lighting.mode_name, Some("Water Ripple"));
         assert_eq!(snapshot.lighting.color.as_deref(), Some("#FFFFFF"));

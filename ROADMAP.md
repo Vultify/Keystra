@@ -34,12 +34,11 @@ Read before we write. Nothing in this phase changes a setting.
 
 The data model decides how every later screen saves things, so it gets settled before the UI is built out.
 
-- [ ] First: generate the TypeScript types the screens use from the Rust types (ts-rs or tauri-specta), including the status event name and level limits, so the two sides can't drift as the profile model grows
-
-- [ ] Hardware test: switch onboard profiles in MagCrate and read back what changes. MagCrate treats the 4 profiles as key layers, so we need to know whether lighting and polling rate are per profile or global.
-- [ ] Profile data model based on that answer. If onboard profiles only hold key layers, Keystra keeps full profiles on the PC and applies the whole set when you switch.
-- [ ] Local storage for profiles (name, settings, linked games): one JSON file in the app's data folder, read and written only by Rust, with a `schemaVersion` field and a small upgrade step on load. The screens use it through Tauri commands, so the tray and game watcher can read it with the window closed.
-- [ ] Leave room in the model for per-key settings (colors, actuation, remaps), so Phase 8 adds fields instead of redoing it
+- [x] First: generate the TypeScript types the screens use from the Rust types (ts-rs), including the status event name and level limits, so the two sides can't drift as the profile model grows
+- [x] Hardware test: switch onboard profiles in MagCrate and read back what changes. Result: profiles hold key mapping and actuation; lighting and polling rate didn't change on a switch.
+- [x] Profile data model based on that answer: Keystra keeps full profiles on the PC (lighting, polling rate, which onboard profile holds the keys, linked games) and applies the whole set when you switch. Any number of profiles; several can share one onboard profile.
+- [x] Local storage for profiles: `profiles.json` in the app's data folder, read and written only by Rust, with a `schemaVersion` field and an upgrade step on load, safe saves (temporary file, then swap), damaged files backed up, and files from a newer Keystra left untouched. The screens use it through Tauri commands.
+- [x] Leave room in the model for per-key settings: new fields use `#[serde(default)]` and bump `schemaVersion`, so Phase 8 adds fields instead of redoing it
 
 **Checkpoint:** profiles save and load in the app, and the design matches how the keyboard actually behaves.
 
@@ -50,6 +49,7 @@ The two features I use, starting with the harmless one.
 - [ ] Lighting: set the mode, color, rainbow, brightness, speed, and direction. Read each one back to confirm.
 - [ ] Polling rate: every rate the keyboard offers (8000 down to 250 or 125 Hz, confirm which), read back to confirm
 - [ ] Profile switching on the keyboard
+- [ ] Remember which Keystra profile is active (saved with the profiles), and show it as "Vultify (Profile 2)" wherever the current profile appears, starting with Diagnostics' Current settings. Needed because several Keystra profiles can share one onboard profile.
 - [ ] Writes get their own send path: send once, wait about 100 ms, then confirm with the matching read, and resend only if the read-back differs (never the read path's automatic retries). SET commands carry their payload in the `Command` type, and stay behind the allowlist and the send-point guard.
 - [ ] Polling rates and lighting modes become two-way tables (code to value and back) used by both reads and writes, including the per-mode color rules
 

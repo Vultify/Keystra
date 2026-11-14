@@ -8,8 +8,9 @@ use super::protocol::Command;
 /// Device IDs reported by GET_USB_VERSION for the MX 8.2 Pro TMR.
 const MODELS: [(u32, &str); 2] = [(2494, "MX 8.2 Pro TMR"), (3098, "MX 8.2 Pro TMR (DE)")];
 
-/// Speeds are stored inverted: the keyboard holds 4 minus the speed.
-const MAX_SPEED: u8 = 4;
+/// Brightness and speed both run from 0 to this value. Speed is stored inverted: the keyboard
+/// holds MAX_LEVEL minus the speed.
+pub const MAX_LEVEL: u8 = 4;
 
 /// How a lighting mode uses the low nibble of the option byte (byte 4) to pick its color.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +77,7 @@ const PRESET_COLORS: [[u8; 3]; 7] = [
 const STORED_WHITE: [u8; 3] = [0xFA, 0xFF, 0xFA];
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
     pub device_id: u32,
@@ -90,6 +92,7 @@ impl DeviceInfo {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct Lighting {
     pub mode_id: u8,
@@ -124,30 +127,35 @@ pub fn parse_device_info(reply: &[u8]) -> Result<DeviceInfo, KeyboardError> {
     Ok(DeviceInfo { device_id, firmware_version, model })
 }
 
-/// Returns the active onboard profile, counting from 0.
-pub fn parse_profile(reply: &[u8]) -> Result<u8, KeyboardError> {
+/// Returns the active onboard profile slot, counting from 0.
+pub fn parse_onboard_slot(reply: &[u8]) -> Result<u8, KeyboardError> {
     field(Command::GetProfile, reply, 1)
 }
 
+/// Polling rates in Hz by firmware code: the code is the index. Shared by reads and (Phase 4) writes.
+pub const POLLING_RATES: [u32; 7] = [8000, 4000, 2000, 1000, 500, 250, 125];
+
 /// Returns the polling rate in Hz, or `None` for a code the firmware doesn't document.
 pub fn parse_polling_rate(reply: &[u8]) -> Result<Option<u32>, KeyboardError> {
-    let hz = match field(Command::GetPollingRate, reply, 2)? {
-        0 => Some(8000),
-        1 => Some(4000),
-        2 => Some(2000),
-        3 => Some(1000),
-        4 => Some(500),
-        5 => Some(250),
-        6 => Some(125),
-        _ => None,
-    };
-    Ok(hz)
+    let code = field(Command::GetPollingRate, reply, 2)?;
+    Ok(POLLING_RATES.get(usize::from(code)).copied())
+}
+
+/// True for a lighting mode ID this firmware family names.
+pub fn is_known_lighting_mode(mode_id: u8) -> bool {
+    LIGHTING_MODES.iter().any(|m| m.id == mode_id)
+}
+
+/// Every named lighting mode as (id, MagCrate name, whether it uses the chosen color), for the screens.
+#[cfg(test)]
+pub fn lighting_modes() -> impl Iterator<Item = (u8, &'static str, bool)> {
+    LIGHTING_MODES.iter().map(|m| (m.id, m.name, m.color != ColorRule::Unused))
 }
 
 pub fn parse_lighting(reply: &[u8]) -> Result<Lighting, KeyboardError> {
     let command = Command::GetLighting;
     let mode_id = field(command, reply, 1)?;
-    let speed = MAX_SPEED.saturating_sub(field(command, reply, 2)?);
+    let speed = MAX_LEVEL.saturating_sub(field(command, reply, 2)?);
     let brightness = field(command, reply, 3)?;
     let option = field(command, reply, 4)?;
     let stored = [field(command, reply, 5)?, field(command, reply, 6)?, field(command, reply, 7)?];
@@ -222,7 +230,7 @@ mod tests {
 
     #[test]
     fn profile_is_byte_one() {
-        assert_eq!(parse_profile(&reply(&[0x84, 2])).unwrap(), 2);
+        assert_eq!(parse_onboard_slot(&reply(&[0x84, 2])).unwrap(), 2);
     }
 
     #[test]

@@ -50,6 +50,14 @@ MagCrate is an Electron app. The screens and message building are JavaScript (`d
 | `0x65` / `0xE5` | SET / GET_MULTI_MAGNETISM | Per-key actuation, rapid trigger, DKS. |
 | `0x8F` | GET_USB_VERSION | Device ID and firmware version. Safe first handshake. |
 
+## Profiles
+
+- 4 onboard profiles, numbered 0 to 3 (MagCrate shows them as key layers 1 to 4). `0x04` SET_PROFILE switches, `0x84` GET_PROFILE reads the active one.
+- **Per profile:** key mapping (MagCrate reads `getKeyConfig(profile, ...)` for each one) and magnetic actuation, rapid trigger and DKS (`0xE5` reads carry a profile byte).
+- **Shared by all profiles:** lighting (`0x87`) and polling rate (`0x83`). MagCrate reads both without a profile number and never re-reads them after a switch. The open RY5088 research also lists LED settings in one shared config block. **Hardware check (2026-11-14):** switching profile 1 to 2 in MagCrate, Keystra read the new profile correctly while lighting (Color Grid) and polling (2000 Hz) stayed the same. Not yet tested: changing lighting on one profile only. Keystra applies lighting and polling itself on every switch, so it works either way.
+- **Fn shortcuts on the MX 8.2** (from MagCrate's default Fn table for this model): **Fn+K** cycles profiles (`profile_loop`, `08 00 03 00`), Fn+F10 is the Home key (opens the browser), Fn+F11 is My Computer, Fn+1..4 look like connection-mode switches. On my keyboard Fn+K did not change the profile in the hardware check, so the firmware's real Fn layer may differ from MagCrate's default table.
+- The MonsGeek boards switch profiles with Fn+F9 to F12 and send an input report `05 01 [profile]` when that happens (open RY5088 research; not seen on the MX 8.2).
+
 ## Lighting modes on this keyboard
 
 MX 8.2 supports these modes, by ID with MagCrate's English names (Keystra shows the same names for now; Phase 5 decides plain-language names): Off 0, Constant Light 1, Breathing 2, Spectrum Cycle 3, Flowing Light 4, Water Ripple 5, Star Dots 6, Flow 7, Shadow 8, Layers 9, Sine Wave 10, Color Spring 11, Neon 12, Custom 13, Radiant 14, Loop 15, Color Grid 16, Snowfall 17, Meteor 18, Silent Snow 19, Light Shadow 21, Music Sync 22. (Mode 20, Music Sync 3, exists in the firmware family but isn't offered on the MX 8.2.)

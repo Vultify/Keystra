@@ -49,6 +49,7 @@ impl Transport for HidTransport {
 
 /// One request and its reply, kept so the diagnostics screen can show the raw bytes.
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct Exchange {
     pub command: Command,
