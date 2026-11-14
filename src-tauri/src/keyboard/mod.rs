@@ -3,15 +3,20 @@
 
 mod conflicts;
 mod error;
+mod lighting;
 mod protocol;
+mod session;
 mod settings;
 mod transport;
 mod worker;
 
 pub use error::KeyboardError;
-pub use settings::{Lighting, MAX_LEVEL, POLLING_RATES, is_known_lighting_mode};
-pub use worker::{KeyboardHandle, KeyboardStatus, Snapshot};
+pub use lighting::LightingSettings;
+pub use protocol::ONBOARD_SLOTS;
+pub use settings::POLLING_RATES;
+pub use session::{ApplyRequest, Snapshot};
+pub use worker::{KeyboardHandle, KeyboardStatus};
 #[cfg(test)]
-pub use settings::lighting_modes;
+pub use lighting::{Lighting, MAX_LEVEL, lighting_modes};
 #[cfg(test)]
 pub use worker::STATUS_EVENT;

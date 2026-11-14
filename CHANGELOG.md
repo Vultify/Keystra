@@ -26,3 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The screens' TypeScript types and shared constants are generated from the Rust code, so the two sides can't drift apart.
 - Saved profiles: lighting, polling rate, onboard profile and linked games, stored safely on this PC with a versioned format. The Diagnostics page can save the keyboard's current settings as a profile.
 - A profiles file that isn't valid JSON is kept as a backup and replaced. Any other problem with it leaves the file untouched and shows profiles as read-only. Saves are flushed to disk before they replace the old file.
+- Applying a profile sends its onboard profile, polling rate and lighting to the keyboard. Keystra writes only what differs, confirms each write by reading it back, and remembers the active profile, shown as "Name (Profile N)" on Diagnostics.
+- Profiles can be edited on the Diagnostics page: every lighting effect the MX 8.2 offers with its own options, plus polling rate and onboard profile.
+- Quick repeated changes are merged into one write, at most one every half second, so the keyboard is never written in a stream.
+- After a failed apply, the screen shows what the keyboard really holds. Saving a profile that reached the file but not the keyboard says so instead of reporting a failed save.

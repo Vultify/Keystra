@@ -52,14 +52,35 @@ impl Transport for HidTransport {
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct Exchange {
-    pub command: Command,
     pub name: &'static str,
     pub request: Vec<u8>,
     pub reply: Vec<u8>,
 }
 
-/// Sends a command and returns the reply, retrying when the reply belongs to something else.
+/// How long the firmware needs after a write before it answers reliably; MagCrate waits the same.
+const WRITE_SETTLE: Duration = Duration::from_millis(100);
+
+/// Sends a write exactly once and waits for the keyboard to take it. Writes never retry on their
+/// own: the caller confirms with the matching read and decides whether to send again.
+pub fn send_write(transport: &mut dyn Transport, command: Command) -> Result<(), KeyboardError> {
+    if !command.is_write() {
+        return Err(KeyboardError::InvalidSetting(format!("{} isn't a write", command.name())));
+    }
+    let request = protocol::build_request(command)?;
+    let mut outgoing = [0u8; REPORT_LEN + 1];
+    outgoing[1..].copy_from_slice(&request);
+    protocol::guard_outgoing(&outgoing)?;
+    thread::sleep(SETTLE);
+    transport.send_feature(&outgoing)?;
+    thread::sleep(WRITE_SETTLE);
+    Ok(())
+}
+
+/// Sends a read and returns the reply, retrying when the reply belongs to something else.
 pub fn exchange(transport: &mut dyn Transport, command: Command) -> Result<Exchange, KeyboardError> {
+    if command.is_write() {
+        return Err(KeyboardError::InvalidSetting(format!("{} is a write; use send_write", command.name())));
+    }
     let request = protocol::build_request(command)?;
     let mut last_error = None;
     for attempt in 0..ATTEMPTS {
@@ -69,7 +90,6 @@ pub fn exchange(transport: &mut dyn Transport, command: Command) -> Result<Excha
         match try_exchange(transport, command, &request) {
             Ok(reply) => {
                 return Ok(Exchange {
-                    command,
                     name: command.name(),
                     request: request.to_vec(),
                     reply,
@@ -176,6 +196,22 @@ mod tests {
             Err(KeyboardError::BadReply { .. })
         ));
         assert_eq!(keyboard.sent.len(), 5);
+    }
+
+    #[test]
+    fn a_write_is_sent_once_and_never_read() {
+        let mut keyboard = FakeKeyboard::new(&[]);
+        send_write(&mut keyboard, Command::SetProfile(1)).unwrap();
+        assert_eq!(keyboard.sent.len(), 1);
+        assert_eq!(&keyboard.sent[0][..3], &[0x00, 0x04, 1]);
+    }
+
+    #[test]
+    fn reads_and_writes_cannot_swap_paths() {
+        let mut keyboard = FakeKeyboard::new(&[]);
+        assert!(send_write(&mut keyboard, Command::GetProfile).is_err());
+        assert!(exchange(&mut keyboard, Command::SetProfile(1)).is_err());
+        assert!(keyboard.sent.is_empty());
     }
 
     #[test]

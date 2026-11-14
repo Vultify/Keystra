@@ -18,43 +18,51 @@ import {
   formatFirmware,
   MAX_LEVEL,
   onboardSlotLabel,
+  onKeyboardSettings,
   readKeyboard,
   toHex,
   type KeyboardStatus,
   type MagCrateState,
   type Snapshot,
 } from "@/lib/keyboard";
-import { lightingModeName } from "@/lib/lighting";
+import { useProfiles } from "@/hooks/use-profiles";
+import { describeLighting } from "@/lib/lighting";
 import { logError } from "@/lib/logging";
+import type { ProfileList } from "@/lib/profiles";
 
 type Row = { label: string; value: ReactNode };
 
-function settingsRows(snapshot: Snapshot): Row[] {
+/** "Vultify (Profile 2)" when the active Keystra profile uses the keyboard's onboard profile. */
+function profileLabel(snapshot: Snapshot, list: ProfileList | null): string {
+  const slot = onboardSlotLabel(snapshot.onboardSlot);
+  const active = list?.profiles.find((profile) => profile.id === list.activeId);
+  return active && active.onboardSlot === snapshot.onboardSlot ? `${active.name} (${slot})` : slot;
+}
+
+function settingsRows(snapshot: Snapshot, list: ProfileList | null): Row[] {
   const { lighting } = snapshot;
+  const described = describeLighting(lighting.modeId, lighting.rainbow, lighting.color, lighting.direction);
   return [
-    { label: "Profile", value: onboardSlotLabel(snapshot.onboardSlot) },
+    { label: "Profile", value: profileLabel(snapshot, list) },
     {
       label: "Polling rate",
       value: snapshot.pollingRate ? `${snapshot.pollingRate} Hz` : "Unknown",
     },
-    {
-      label: "Lighting effect",
-      value: lightingModeName(lighting.modeId),
-    },
+    { label: "Lighting effect", value: described.effect },
     { label: "Brightness", value: `${lighting.brightness} of ${MAX_LEVEL}` },
     { label: "Speed", value: `${lighting.speed} of ${MAX_LEVEL}` },
-    { label: "Color", value: <LightingColor lighting={lighting} /> },
-    { label: "Direction", value: String(lighting.direction) },
+    { label: "Color", value: <LightingColor color={described.color} /> },
+    ...(described.option ? [{ label: described.option.label, value: described.option.value }] : []),
   ];
 }
 
-function LightingColor({ lighting }: { lighting: Snapshot["lighting"] }) {
-  if (lighting.rainbow) return "Rainbow";
-  if (lighting.color === null) return <span className="text-muted-foreground">Set by the effect</span>;
+function LightingColor({ color }: { color: string | null }) {
+  if (color === null) return <span className="text-muted-foreground">Set by the effect</span>;
+  if (!color.startsWith("#")) return color;
   return (
     <span className="flex items-center gap-2">
-      <span className="size-4 rounded-sm border" style={{ backgroundColor: lighting.color }} />
-      {lighting.color}
+      <span className="size-4 rounded-sm border" style={{ backgroundColor: color }} />
+      {color}
     </span>
   );
 }
@@ -65,6 +73,7 @@ export function DiagnosticsScreen({ status }: { status: KeyboardStatus | null })
   const [reading, setReading] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
 
+  const profiles = useProfiles();
   const connected = status?.state === "connected";
   const deviceId = connected ? status.info.deviceId : null;
 
@@ -79,6 +88,14 @@ export function DiagnosticsScreen({ status }: { status: KeyboardStatus | null })
     } finally {
       setReading(false);
     }
+  }, []);
+
+  // Keystra announces the keyboard's settings whenever it changes them, from any screen or the tray.
+  useEffect(() => {
+    const unlisten = onKeyboardSettings(setSnapshot);
+    return () => {
+      unlisten.then((stop) => stop()).catch(() => {});
+    };
   }, []);
 
   // Read once each time the keyboard connects.
@@ -118,7 +135,7 @@ export function DiagnosticsScreen({ status }: { status: KeyboardStatus | null })
             {snapshot && (
               <Table>
                 <TableBody>
-                  {settingsRows(snapshot).map((row) => (
+                  {settingsRows(snapshot, profiles).map((row) => (
                     <TableRow key={row.label}>
                       <TableCell className="w-48 text-muted-foreground">{row.label}</TableCell>
                       <TableCell>{row.value}</TableCell>
@@ -131,7 +148,7 @@ export function DiagnosticsScreen({ status }: { status: KeyboardStatus | null })
         </Card>
       )}
 
-      <SavedProfilesCard connected={connected} />
+      <SavedProfilesCard connected={connected} list={profiles} />
 
       {connected && snapshot && (
         <Card>
@@ -150,7 +167,7 @@ export function DiagnosticsScreen({ status }: { status: KeyboardStatus | null })
               </TableHeader>
               <TableBody>
                 {snapshot.exchanges.map((exchange) => (
-                  <TableRow key={exchange.command}>
+                  <TableRow key={exchange.name}>
                     <TableCell className="font-medium">{exchange.name}</TableCell>
                     <TableCell className="font-mono text-xs whitespace-normal">{toHex(exchange.request)}</TableCell>
                     <TableCell className="font-mono text-xs whitespace-normal break-all">

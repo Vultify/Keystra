@@ -35,7 +35,7 @@ MagCrate is an Electron app. The screens and message building are JavaScript (`d
 | `0x83` GET_REPORT | 2 = polling code: 0=8000, 1=4000, 2=2000, 3=1000, 4=500, 5=250, 6=125 Hz |
 | `0x87` GET_LEDPARAM | 1 = mode, 2 = 4 - speed, 3 = brightness 0..4, 4 = high nibble direction, low nibble color choice (see below), 5..7 = RGB (`FA FF FA` means white) |
 
-**Color choice (low nibble of byte 4) depends on the mode.** Most modes: 8 = rainbow, 7 = the stored RGB, 0..6 = a preset color. Music Sync (22) and Music Sync 3 (20): 0 = rainbow, 4 = the stored RGB. Off (0), Spectrum Cycle (3), Custom (13) and Light Shadow (21) set their own colors, so the nibble isn't a color choice. The table lives in `src-tauri/src/keyboard/settings.rs` (`LIGHTING_MODES`).
+**Color choice (low nibble of byte 4) depends on the mode.** Most modes: 8 = rainbow, 7 = the stored RGB, 0..6 = a preset color. Music Sync (22) and Music Sync 3 (20): 0 = rainbow, 4 = the stored RGB. Off (0), Spectrum Cycle (3), Custom (13) and Light Shadow (21) set their own colors, so the nibble isn't a color choice. The table lives in `src-tauri/src/keyboard/lighting.rs` (`LIGHTING_MODES`).
 
 ## Commands we need (stock firmware)
 
@@ -49,6 +49,39 @@ MagCrate is an Electron app. The screens and message building are JavaScript (`d
 | `0x0A` / `0x8A` | SET / GET_KEYMATRIX | Key remapping. |
 | `0x65` / `0xE5` | SET / GET_MULTI_MAGNETISM | Per-key actuation, rapid trigger, DKS. |
 | `0x8F` | GET_USB_VERSION | Device ID and firmware version. Safe first handshake. |
+
+## Writes (from MagCrate's RY5088 code, built the same way in Keystra)
+
+**Hardware check (2026-11-14):** switching onboard profile, polling rate (including 125 Hz) and lighting (including an effect direction) from Keystra all worked and read back correctly, so Cherry's firmware matches these bytes.
+
+MagCrate sends a write with set-feature only (no reply read), then waits about 100 ms. Keystra does the same, then confirms with the matching GET and resends once if the keyboard didn't keep it.
+
+| Write | Bytes | Checksum |
+|---|---|---|
+| `04` SET_PROFILE | `04 slot` (slot 0 to 3) | Bit7 |
+| `03` SET_REPORT | `03 00 code` (same codes as GET_REPORT) | Bit7 |
+| `07` SET_LEDPARAM | `07 mode (4 - speed) brightness option R G B` | Bit8 |
+
+Lighting option byte: high nibble = the effect's option (direction, or the pattern for Custom), low nibble = color choice. MagCrate writes 8 (rainbow) or 7 (stored RGB) for most effects, 0 or 4 for Music Sync, `option << 4` with RGB `00 C8 C8` for Custom, and a 0 option byte for Light Shadow. White `FF FF FF` is sent as `FA FF FA`. One difference: for Off and Spectrum Cycle, which pick their own colors, MagCrate still writes 8 or 7 from its rainbow flag, while Keystra always writes 7.
+
+**The MX 8.2's lighting layout** (MagCrate's `lightingLayout` for device 2494). Options are listed in firmware order, translated from MagCrate's Chinese labels:
+
+| Effect | Brightness | Speed | Color | Options |
+|---|---|---|---|---|
+| Off (0) | | | | |
+| Constant Light (1) | yes | | yes | |
+| Spectrum Cycle (3) | yes | yes | | |
+| Flowing Light (4) | yes | yes | yes | Right, Left, Down, Up |
+| Flow (7) | yes | yes | yes | Zigzag, Spiral |
+| Color Spring (11) | yes | yes | yes | Outward, Inward |
+| Neon (12) | yes | yes | yes | Right, Left |
+| Custom (13) | yes | | | Pattern 1 to 5 |
+| Loop (15) | yes | yes | yes | Counterclockwise, Clockwise |
+| Light Shadow (21) | yes | | | |
+| Music Sync (22) | yes | | yes | Upright, Separate, Intersect |
+| Every other effect (2, 5, 6, 8, 9, 10, 14, 16 to 19) | yes | yes | yes | |
+
+Music Sync 3 (20) isn't in the MX 8.2's layout, so Keystra reads it but never writes it. Light Shadow and Music Sync take their colors from the screen or sound through MagCrate's helper, so on their own they may not show much.
 
 ## Profiles
 
@@ -98,7 +131,7 @@ The high bit does **not** mean a command is a harmless read: `0xAC`, `0xB0`..`0x
 ## Open questions
 
 - The 2.4 GHz dongle path is not covered yet. Wired first.
-- Whether Cherry's firmware build matches the MonsGeek one byte for byte. Verify each command with a read (GET) before any write.
+- Whether Cherry's firmware build matches the MonsGeek one byte for byte beyond the three writes confirmed so far. Verify each new command with a read (GET) before any write.
 
 ## Sources
 

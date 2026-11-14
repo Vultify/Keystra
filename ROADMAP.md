@@ -46,14 +46,14 @@ The data model decides how every later screen saves things, so it gets settled b
 
 The two features I use, starting with the harmless one.
 
-- [ ] Lighting: set the mode, color, rainbow, brightness, speed, and direction. Read each one back to confirm.
-- [ ] Polling rate: every rate the keyboard offers (8000 down to 250 or 125 Hz, confirm which), read back to confirm
-- [ ] Profile switching on the keyboard
-- [ ] Remember which Keystra profile is active (saved with the profiles), and show it as "Vultify (Profile 2)" wherever the current profile appears, starting with Diagnostics' Current settings. Needed because several Keystra profiles can share one onboard profile.
-- [ ] Writes get their own send path: send once, wait about 100 ms, then confirm with the matching read, and resend only if the read-back differs (never the read path's automatic retries). SET commands carry their payload in the `Command` type, and stay behind the allowlist and the send-point guard.
-- [ ] Polling rates and lighting modes become two-way tables (code to value and back) used by both reads and writes, including the per-mode color rules
+- [x] Lighting: set the mode, color, rainbow, brightness, speed, and direction. Read each one back to confirm.
+- [x] Polling rate: every rate the keyboard offers (8000 down to 125 Hz, all confirmed on my keyboard), read back to confirm
+- [x] Profile switching on the keyboard
+- [x] Remember which Keystra profile is active (saved with the profiles), and show it as "Vultify (Profile 2)" wherever the current profile appears, starting with Diagnostics' Current settings. Needed because several Keystra profiles can share one onboard profile.
+- [x] Writes get their own send path: send once, wait about 100 ms, then confirm with the matching read, and resend only if the read-back differs (never the read path's automatic retries). SET commands carry their payload in the `Command` type, and stay behind the allowlist and the send-point guard.
+- [x] Polling rates and lighting modes become two-way tables (code to value and back) used by both reads and writes, including the per-mode color rules
 
-**Checkpoint:** I change lighting, polling rate, and profile from Keystra, and the keyboard follows. MagCrate can still reset everything.
+**Checkpoint (passed 2026-11-14):** I change lighting, polling rate, and profile from Keystra, and the keyboard follows. MagCrate can still reset everything.
 
 ## Phase 5: The real UI
 

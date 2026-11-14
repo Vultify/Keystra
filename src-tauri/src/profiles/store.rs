@@ -15,13 +15,20 @@ pub const FILE_NAME: &str = "profiles.json";
 
 /// Upgrade steps for older saved formats: `UPGRADES[n]` turns a version n + 1 file into version
 /// n + 2. The length is tied to SCHEMA_VERSION, so a version bump without its step doesn't build.
-const UPGRADES: [fn(Value) -> Result<Value, ProfileError>; SCHEMA_VERSION as usize - 1] = [];
+const UPGRADES: [fn(Value) -> Result<Value, ProfileError>; SCHEMA_VERSION as usize - 1] = [v1_to_v2];
+
+/// Format 2 added `activeId`, which loads as "none" when missing, so nothing needs to move.
+fn v1_to_v2(raw: Value) -> Result<Value, ProfileError> {
+    Ok(raw)
+}
 
 pub struct ProfileStore {
     path: PathBuf,
     file: ProfileFile,
     /// Set when the saved file couldn't be used. Changes are refused so that file is never overwritten.
     read_only: Option<String>,
+    /// Goes up with every save, so callers can tell whether a change actually changed anything.
+    revision: u64,
 }
 
 impl ProfileStore {
@@ -29,7 +36,7 @@ impl ProfileStore {
     /// as JSON is backed up and replaced; any other problem opens the store read-only.
     pub fn open(path: PathBuf) -> Self {
         match read_file(&path) {
-            Ok(Some(file)) => Self { path, file, read_only: None },
+            Ok(Some(file)) => Self { path, file, read_only: None, revision: 0 },
             Ok(None) => {
                 log::info!("no profiles yet, creating {FILE_NAME}");
                 Self::start_fresh(path)
@@ -49,7 +56,7 @@ impl ProfileStore {
     }
 
     fn start_fresh(path: PathBuf) -> Self {
-        let store = Self { path, file: ProfileFile::fresh(), read_only: None };
+        let store = Self { path, file: ProfileFile::fresh(), read_only: None, revision: 0 };
         if let Err(err) = write_file(&store.path, &store.file) {
             log::warn!("{err}");
         }
@@ -59,7 +66,7 @@ impl ProfileStore {
     /// Shows a placeholder Default profile and refuses every change, leaving the saved file alone.
     fn read_only(path: PathBuf, reason: String) -> Self {
         log::warn!("opening profiles read-only: {reason}");
-        Self { path, file: ProfileFile::fresh(), read_only: Some(reason) }
+        Self { path, file: ProfileFile::fresh(), read_only: Some(reason), revision: 0 }
     }
 
     #[cfg(test)]
@@ -68,7 +75,31 @@ impl ProfileStore {
     }
 
     pub fn list(&self) -> ProfileList {
-        ProfileList { profiles: self.file.profiles.clone(), read_only: self.read_only.clone() }
+        ProfileList {
+            profiles: self.file.profiles.clone(),
+            active_id: self.file.active_id,
+            read_only: self.read_only.clone(),
+        }
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Fails when the store is read-only, for callers about to do something they'd need to save.
+    pub fn check_writable(&self) -> Result<(), ProfileError> {
+        match &self.read_only {
+            Some(reason) => Err(ProfileError::ReadOnly(reason.clone())),
+            None => Ok(()),
+        }
+    }
+
+    /// Remembers which profile the keyboard was last set to.
+    pub fn set_active(&mut self, id: u32) -> Result<(), ProfileError> {
+        self.change(|file| {
+            file.active_id = Some(id);
+            Ok(())
+        })
     }
 
     pub fn get(&self, id: u32) -> Result<&Profile, ProfileError> {
@@ -84,9 +115,7 @@ impl ProfileStore {
         };
         self.create_with(name, |profile| {
             if let Some(source) = base {
-                profile.onboard_slot = source.onboard_slot;
-                profile.lighting = source.lighting;
-                profile.polling_rate_hz = source.polling_rate_hz;
+                *profile = Profile { id: profile.id, name: profile.name.clone(), linked_apps: Vec::new(), ..source };
             }
         })
     }
@@ -123,6 +152,9 @@ impl ProfileStore {
         self.change(|file| {
             let before = file.profiles.len();
             file.profiles.retain(|p| p.id != id);
+            if file.active_id == Some(id) {
+                file.active_id = None;
+            }
             match file.profiles.len() {
                 0 => Err(ProfileError::LastProfile),
                 n if n == before => Err(ProfileError::NotFound),
@@ -132,16 +164,19 @@ impl ProfileStore {
     }
 
     /// Applies a change to a copy, checks the result, saves it, and only then keeps it. A failed
-    /// check or save leaves both memory and disk as they were.
+    /// check or save leaves both memory and disk as they were, and a change that changes nothing
+    /// isn't saved at all.
     fn change<T>(&mut self, edit: impl FnOnce(&mut ProfileFile) -> Result<T, ProfileError>) -> Result<T, ProfileError> {
-        if let Some(reason) = &self.read_only {
-            return Err(ProfileError::ReadOnly(reason.clone()));
-        }
+        self.check_writable()?;
         let mut next = self.file.clone();
         let result = edit(&mut next)?;
+        if next == self.file {
+            return Ok(result);
+        }
         next.validate()?;
         write_file(&self.path, &next)?;
         self.file = next;
+        self.revision += 1;
         Ok(result)
     }
 }
@@ -283,6 +318,60 @@ mod tests {
         let names: Vec<_> = store.profiles().iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, ["Default", "Vultify"]);
         assert_eq!(store.get(3).unwrap().linked_apps, ["game.exe"]);
+        assert_eq!(store.list().active_id, None, "format 1 had no active profile");
+    }
+
+    #[test]
+    fn a_version_2_file_still_loads() {
+        // Written by hand, so renaming activeId or another format 2 field fails here.
+        let dir = TempDir::new("v2");
+        let v2 = r##"{
+          "schemaVersion": 2,
+          "nextId": 4,
+          "activeId": 3,
+          "profiles": [
+            { "id": 1, "name": "Default", "onboardSlot": 0, "pollingRateHz": 2000, "linkedApps": [],
+              "lighting": { "mode": 16, "brightness": 4, "speed": 2, "direction": 0, "rainbow": true, "color": "#FFFFFF" } },
+            { "id": 3, "name": "Vultify", "onboardSlot": 1, "pollingRateHz": 2000, "linkedApps": [],
+              "lighting": { "mode": 4, "brightness": 4, "speed": 2, "direction": 1, "rainbow": false, "color": "#FF0000" } }
+          ]
+        }"##;
+        fs::write(dir.file(), v2).unwrap();
+        let store = ProfileStore::open(dir.file());
+        assert!(store.list().read_only.is_none());
+        assert_eq!(store.list().active_id, Some(3));
+        assert_eq!(store.get(3).unwrap().lighting.direction, 1);
+    }
+
+    #[test]
+    fn a_change_that_changes_nothing_is_not_saved() {
+        let dir = TempDir::new("no-op");
+        let mut store = ProfileStore::open(dir.file());
+        store.set_active(1).unwrap();
+        let revision = store.revision();
+        store.set_active(1).unwrap();
+        let same = store.get(1).unwrap().clone();
+        store.update(same).unwrap();
+        assert_eq!(store.revision(), revision);
+    }
+
+    #[test]
+    fn a_read_only_store_says_so_before_any_work() {
+        let dir = TempDir::new("check-writable");
+        fs::write(dir.file(), r#"{"schemaVersion": 99, "nextId": 2, "profiles": []}"#).unwrap();
+        assert!(matches!(ProfileStore::open(dir.file()).check_writable(), Err(ProfileError::ReadOnly(_))));
+    }
+
+    #[test]
+    fn the_active_profile_is_saved_and_cleared_on_delete() {
+        let dir = TempDir::new("active");
+        let mut store = ProfileStore::open(dir.file());
+        let gaming = store.create("Gaming", None).unwrap();
+        store.set_active(gaming.id).unwrap();
+        assert_eq!(ProfileStore::open(dir.file()).list().active_id, Some(gaming.id));
+        assert!(store.set_active(99).is_err(), "unknown profile");
+        store.delete(gaming.id).unwrap();
+        assert_eq!(store.list().active_id, None);
     }
 
     #[test]
@@ -301,11 +390,14 @@ mod tests {
         let mut store = ProfileStore::open(dir.file());
         let mut source = store.get(1).unwrap().clone();
         source.polling_rate_hz = 8000;
+        source.onboard_slot = 2;
+        source.lighting.mode = 4;
         source.linked_apps.push("game.exe".into());
-        store.update(source).unwrap();
+        store.update(source.clone()).unwrap();
         let copy = store.create("Copy", Some(1)).unwrap();
-        assert_eq!(copy.polling_rate_hz, 8000);
-        assert!(copy.linked_apps.is_empty());
+        // Every setting except identity and linked programs comes along, including future fields.
+        let expected = Profile { id: copy.id, name: "Copy".into(), linked_apps: Vec::new(), ..source };
+        assert_eq!(copy, expected);
     }
 
     #[test]

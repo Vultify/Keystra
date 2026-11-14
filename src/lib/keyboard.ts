@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { STATUS_EVENT } from "./bindings/constants";
+import { SETTINGS_EVENT, STATUS_EVENT } from "./bindings/constants";
 import type { KeyboardStatus } from "./bindings/KeyboardStatus";
 import type { Snapshot } from "./bindings/Snapshot";
 
@@ -20,6 +20,11 @@ export function getKeyboardStatus(): Promise<KeyboardStatus> {
 
 export function readKeyboard(): Promise<Snapshot> {
   return invoke<Snapshot>("read_keyboard");
+}
+
+/** Fires with the keyboard's settings whenever Keystra changes them. */
+export function onKeyboardSettings(handler: (snapshot: Snapshot) => void): Promise<UnlistenFn> {
+  return listen<Snapshot>(SETTINGS_EVENT, (event) => handler(event.payload));
 }
 
 export function onKeyboardStatus(handler: (status: KeyboardStatus) => void): Promise<UnlistenFn> {

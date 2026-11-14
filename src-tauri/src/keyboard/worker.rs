@@ -14,8 +14,9 @@ use tauri::{AppHandle, Emitter};
 use super::conflicts::{self, MagCrateState};
 use super::error::KeyboardError;
 use super::protocol::{Command, PRODUCT_ID, USAGE, USAGE_PAGE, VENDOR_ID};
-use super::settings::{self, DeviceInfo, Lighting};
-use super::transport::{self, Exchange, HidTransport, Transport};
+use super::session::{self, ApplyRequest, Snapshot};
+use super::settings::{self, DeviceInfo};
+use super::transport::{self, HidTransport, Transport};
 
 /// How often the worker checks whether the keyboard was plugged in or pulled out.
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
@@ -30,6 +31,10 @@ const RETRY_DELAYS: [Duration; 4] = [
     Duration::from_secs(10),
     Duration::from_secs(30),
 ];
+
+/// The least time between two applies, so quick repeated changes can never become a stream of
+/// writes. Requests that arrive meanwhile are merged into one.
+const MIN_WRITE_GAP: Duration = Duration::from_millis(500);
 
 /// Shown when the keyboard is there but its replies keep getting mixed up.
 const BUSY_MESSAGE: &str = "the keyboard is busy, another app may be using it";
@@ -48,21 +53,9 @@ pub enum KeyboardStatus {
     Error { message: String },
 }
 
-/// Everything Keystra reads from the keyboard, plus the raw bytes behind it.
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
-#[serde(rename_all = "camelCase")]
-pub struct Snapshot {
-    pub info: DeviceInfo,
-    /// The active onboard profile, counting from 0.
-    pub onboard_slot: u8,
-    pub polling_rate: Option<u32>,
-    pub lighting: Lighting,
-    pub exchanges: Vec<Exchange>,
-}
-
 enum Job {
     ReadAll(Sender<Result<Snapshot, KeyboardError>>),
+    Apply(ApplyRequest, Sender<Result<Snapshot, KeyboardError>>),
 }
 
 /// Cheap handle the commands use to talk to the worker thread.
@@ -84,6 +77,7 @@ impl KeyboardHandle {
             skips: Skips::default(),
             magcrate: MagCrateState::Closed,
             polls: 0,
+            last_apply: None,
         };
         thread::Builder::new()
             .name("keyboard-worker".into())
@@ -96,10 +90,22 @@ impl KeyboardHandle {
         self.status.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
+    pub fn is_connected(&self) -> bool {
+        matches!(self.status(), KeyboardStatus::Connected { .. })
+    }
+
     /// Reads every setting Keystra knows in one go. Blocks until the worker answers.
     pub fn read_all(&self) -> Result<Snapshot, KeyboardError> {
         let (reply, answer) = mpsc::channel();
         self.jobs.send(Job::ReadAll(reply)).map_err(|_| KeyboardError::WorkerStopped)?;
+        answer.recv().map_err(|_| KeyboardError::WorkerStopped)?
+    }
+
+    /// Writes whatever in `request` differs from the keyboard, confirming each write with a read.
+    /// Blocks until the worker answers with the keyboard's settings afterwards.
+    pub fn apply(&self, request: ApplyRequest) -> Result<Snapshot, KeyboardError> {
+        let (reply, answer) = mpsc::channel();
+        self.jobs.send(Job::Apply(request, reply)).map_err(|_| KeyboardError::WorkerStopped)?;
         answer.recv().map_err(|_| KeyboardError::WorkerStopped)?
     }
 }
@@ -199,6 +205,7 @@ struct Worker {
     skips: Skips,
     magcrate: MagCrateState,
     polls: u32,
+    last_apply: Option<Instant>,
 }
 
 impl Worker {
@@ -207,11 +214,11 @@ impl Worker {
         self.refresh();
         loop {
             match inbox.recv_timeout(POLL_INTERVAL) {
+                // The caller may have gone away; nothing to do if so.
                 Ok(Job::ReadAll(reply)) => {
-                    let result = self.read_all();
-                    // The caller may have gone away; nothing to do if so.
-                    let _ = reply.send(result);
+                    let _ = reply.send(self.with_device(session::read_settings));
                 }
+                Ok(Job::Apply(request, reply)) => self.apply(request, reply, &inbox),
                 Err(RecvTimeoutError::Timeout) => self.refresh(),
                 Err(RecvTimeoutError::Disconnected) => break,
             }
@@ -331,14 +338,50 @@ impl Worker {
         self.set_status(KeyboardStatus::Disconnected);
     }
 
-    fn read_all(&mut self) -> Result<Snapshot, KeyboardError> {
-        let device = self.device.as_mut().ok_or(KeyboardError::NotConnected)?;
-        let result = read_settings(&mut device.transport, device.info.clone());
-        if result.is_ok() {
-            log::debug!("read all settings");
+    /// Applies a request after the minimum gap since the last apply, merged with any requests
+    /// that queued up meanwhile. The newest caller gets the result; older ones learn theirs was
+    /// replaced, so only one of them treats the apply as its own.
+    fn apply(&mut self, request: ApplyRequest, reply: Sender<Result<Snapshot, KeyboardError>>, inbox: &Receiver<Job>) {
+        if let Some(last) = self.last_apply {
+            thread::sleep(MIN_WRITE_GAP.saturating_sub(last.elapsed()));
         }
+        let mut request = request;
+        let mut replies = vec![reply];
+        let mut reads = Vec::new();
+        while let Ok(job) = inbox.try_recv() {
+            match job {
+                Job::Apply(newer, newer_reply) => {
+                    request = request.then(newer);
+                    replies.push(newer_reply);
+                }
+                Job::ReadAll(read_reply) => reads.push(read_reply),
+            }
+        }
+        if replies.len() > 1 {
+            log::info!("merged {} quick changes into one apply", replies.len());
+        }
+        let result = self.with_device(|transport, info| session::apply_settings(transport, info, &request));
+        self.last_apply = Some(Instant::now());
+        // Only the newest caller's change is the one the keyboard ends up holding.
+        let newest = replies.pop().expect("at least the first request");
+        for reply in replies {
+            let _ = reply.send(Err(KeyboardError::Superseded));
+        }
+        let _ = newest.send(result);
+        for read_reply in reads {
+            let _ = read_reply.send(self.with_device(session::read_settings));
+        }
+    }
+
+    /// Runs a job against the open keyboard, dropping the connection if USB itself fails.
+    fn with_device(
+        &mut self,
+        job: impl FnOnce(&mut dyn Transport, DeviceInfo) -> Result<Snapshot, KeyboardError>,
+    ) -> Result<Snapshot, KeyboardError> {
+        let device = self.device.as_mut().ok_or(KeyboardError::NotConnected)?;
+        let result = job(&mut device.transport, device.info.clone());
         if let Err(KeyboardError::Hid(message)) = &result {
-            log::warn!("read failed, dropping connection: {message}");
+            log::warn!("USB error, dropping connection: {message}");
             self.disconnect();
         }
         result
@@ -360,65 +403,9 @@ impl Worker {
     }
 }
 
-/// Runs the reads in a fixed order and parses each reply.
-fn read_settings(transport: &mut dyn Transport, info: DeviceInfo) -> Result<Snapshot, KeyboardError> {
-    let device = transport::exchange(transport, Command::GetDeviceInfo)?;
-    let slot = transport::exchange(transport, Command::GetProfile)?;
-    let polling = transport::exchange(transport, Command::GetPollingRate)?;
-    let lighting = transport::exchange(transport, Command::GetLighting)?;
-
-    let fresh_info = settings::parse_device_info(&device.reply).unwrap_or(info);
-    Ok(Snapshot {
-        info: fresh_info,
-        onboard_slot: settings::parse_onboard_slot(&slot.reply)?,
-        polling_rate: settings::parse_polling_rate(&polling.reply)?,
-        lighting: settings::parse_lighting(&lighting.reply)?,
-        exchanges: vec![device, slot, polling, lighting],
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keyboard::protocol::REPORT_LEN;
-
-    /// Fake MX 8.2 that answers each GET like the real firmware would.
-    struct FakeSession {
-        last: u8,
-    }
-
-    impl Transport for FakeSession {
-        fn send_feature(&mut self, report: &[u8]) -> Result<(), KeyboardError> {
-            self.last = report[1];
-            Ok(())
-        }
-
-        fn get_feature(&mut self, buf: &mut [u8]) -> Result<usize, KeyboardError> {
-            let body: &[u8] = match self.last {
-                0x8F => &[0x8F, 0xBE, 0x09, 0, 0, 0, 0, 0x04, 0x01],
-                0x84 => &[0x84, 0x00],
-                0x83 => &[0x83, 0x00, 0x02],
-                0x87 => &[0x87, 5, 1, 4, 0x07, 0xFA, 0xFF, 0xFA],
-                other => panic!("unexpected command 0x{other:02X}"),
-            };
-            buf[0] = 0;
-            buf[1..=body.len()].copy_from_slice(body);
-            Ok(REPORT_LEN + 1)
-        }
-    }
-
-    #[test]
-    fn reads_every_setting_in_order() {
-        let info = settings::parse_device_info(&[0x8F, 0xBE, 0x09, 0, 0, 0, 0, 0x04, 0x01]).unwrap();
-        let snapshot = read_settings(&mut FakeSession { last: 0 }, info).unwrap();
-        assert_eq!(snapshot.info.device_id, 2494);
-        assert_eq!(snapshot.onboard_slot, 0);
-        assert_eq!(snapshot.polling_rate, Some(2000));
-        assert_eq!(snapshot.lighting.mode_name, Some("Water Ripple"));
-        assert_eq!(snapshot.lighting.color.as_deref(), Some("#FFFFFF"));
-        let order: Vec<u8> = snapshot.exchanges.iter().map(|e| e.command.id()).collect();
-        assert_eq!(order, [0x8F, 0x84, 0x83, 0x87]);
-    }
 
     #[test]
     fn status_serializes_for_the_screens() {

@@ -4,30 +4,13 @@
 use serde::{Deserialize, Serialize};
 
 use super::error::ProfileError;
-use crate::keyboard::{self, MAX_LEVEL, POLLING_RATES};
+use crate::keyboard::{self, LightingSettings, ONBOARD_SLOTS, POLLING_RATES};
 
 /// Bump when the saved format changes. New fields use `#[serde(default)]`, and each bump adds a
 /// step to `store::UPGRADES` (the build fails until it does).
-pub const SCHEMA_VERSION: u32 = 1;
-
-/// The keyboard's onboard profiles are numbered 0 to ONBOARD_SLOTS - 1.
-pub const ONBOARD_SLOTS: u8 = 4;
+pub const SCHEMA_VERSION: u32 = 2;
 
 pub const MAX_NAME_LEN: usize = 40;
-
-/// The lighting values the firmware takes, in the form Keystra saves.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
-#[serde(rename_all = "camelCase")]
-pub struct LightingSettings {
-    pub mode: u8,
-    pub brightness: u8,
-    pub speed: u8,
-    pub direction: u8,
-    pub rainbow: bool,
-    /// "#RRGGBB". Kept even for effects that pick their own colors, so it survives a mode change.
-    pub color: String,
-}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
@@ -51,6 +34,9 @@ pub struct ProfileFile {
     pub schema_version: u32,
     pub next_id: u32,
     pub profiles: Vec<Profile>,
+    /// The profile last applied to the keyboard (added in format 2).
+    #[serde(default)]
+    pub active_id: Option<u32>,
 }
 
 /// The profile list as the screens get it, from `list_profiles` and with every PROFILES_EVENT.
@@ -59,51 +45,10 @@ pub struct ProfileFile {
 #[serde(rename_all = "camelCase")]
 pub struct ProfileList {
     pub profiles: Vec<Profile>,
+    /// The profile last applied to the keyboard, if any.
+    pub active_id: Option<u32>,
     /// Why changes are switched off, when the saved file couldn't be used. That file is left as it was.
     pub read_only: Option<String>,
-}
-
-impl LightingSettings {
-    /// The MX 8.2's out-of-the-box lighting: Color Grid, rainbow, full brightness, speed 2.
-    pub fn factory() -> Self {
-        Self {
-            mode: 16,
-            brightness: MAX_LEVEL,
-            speed: 2,
-            direction: 0,
-            rainbow: true,
-            color: "#FFFFFF".into(),
-        }
-    }
-
-    /// Takes what the keyboard reported. Effects without a color keep `fallback_color`.
-    fn from_reading(reading: &keyboard::Lighting, fallback_color: &str) -> Self {
-        Self {
-            mode: reading.mode_id,
-            brightness: reading.brightness,
-            speed: reading.speed,
-            direction: reading.direction,
-            rainbow: reading.rainbow,
-            color: reading.color.clone().unwrap_or_else(|| fallback_color.to_string()),
-        }
-    }
-
-    fn validate(&self) -> Result<(), ProfileError> {
-        let invalid = |what: &str| Err(ProfileError::Invalid(what.into()));
-        if !keyboard::is_known_lighting_mode(self.mode) {
-            return invalid("unknown lighting effect");
-        }
-        if self.brightness > MAX_LEVEL || self.speed > MAX_LEVEL {
-            return Err(ProfileError::Invalid(format!("brightness and speed must be 0 to {MAX_LEVEL}")));
-        }
-        if self.direction > 0x0F {
-            return invalid("direction is out of range");
-        }
-        if !is_hex_color(&self.color) {
-            return invalid("color must look like #RRGGBB");
-        }
-        Ok(())
-    }
 }
 
 impl Profile {
@@ -135,7 +80,7 @@ impl Profile {
         if !POLLING_RATES.contains(&self.polling_rate_hz) {
             return Err(ProfileError::Invalid("polling rate isn't one the keyboard supports".into()));
         }
-        self.lighting.validate()
+        self.lighting.validate().map_err(ProfileError::Invalid)
     }
 }
 
@@ -146,6 +91,7 @@ impl ProfileFile {
             schema_version: SCHEMA_VERSION,
             next_id: 2,
             profiles: vec![Profile::factory(1, "Default")],
+            active_id: None,
         }
     }
 
@@ -167,6 +113,11 @@ impl ProfileFile {
                 return Err(ProfileError::Invalid("next id is behind the profiles".into()));
             }
         }
+        if let Some(id) = self.active_id
+            && !self.profiles.iter().any(|p| p.id == id)
+        {
+            return Err(ProfileError::Invalid("the active profile doesn't exist".into()));
+        }
         Ok(())
     }
 }
@@ -184,10 +135,6 @@ pub fn validate_name(name: &str) -> Result<(), ProfileError> {
 
 pub fn same_name(a: &str, b: &str) -> bool {
     a.trim().to_lowercase() == b.trim().to_lowercase()
-}
-
-fn is_hex_color(color: &str) -> bool {
-    color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
 #[cfg(test)]
@@ -255,7 +202,6 @@ mod tests {
     fn reading_without_a_color_keeps_the_saved_one() {
         let reading = keyboard::Lighting {
             mode_id: 21,
-            mode_name: Some("Light Shadow"),
             brightness: 3,
             speed: 1,
             direction: 0,

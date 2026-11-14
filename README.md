@@ -12,7 +12,7 @@ I built Keystra because the official software is confusing to use, has no easy w
 
 ## Status
 
-Early development. Keystra finds the keyboard over USB, reads its current settings, and saves them as profiles on this PC. Changing the keyboard's settings comes next. See [ROADMAP.md](ROADMAP.md) for the build order.
+Early development. Keystra finds the keyboard over USB, saves profiles on this PC, and applies them: it switches the onboard profile and sets the polling rate and lighting. For now this all lives on a Diagnostics test page; the real Lighting, Performance and Profiles screens come next. See [ROADMAP.md](ROADMAP.md) for the build order.
 
 ## Planned features
 

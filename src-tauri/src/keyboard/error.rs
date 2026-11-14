@@ -1,7 +1,7 @@
 use serde::{Serialize, Serializer};
 
 /// Everything that can go wrong while talking to the keyboard.
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum KeyboardError {
     #[error("keyboard is not connected")]
     NotConnected,
@@ -17,6 +17,15 @@ pub enum KeyboardError {
 
     #[error("the keyboard worker has stopped")]
     WorkerStopped,
+
+    #[error("{0}")]
+    InvalidSetting(String),
+
+    #[error("the keyboard didn't keep the new {0}; it may be busy with another app")]
+    NotConfirmed(&'static str),
+
+    #[error("a newer change replaced this one before it was sent")]
+    Superseded,
 }
 
 impl From<hidapi::HidError> for KeyboardError {

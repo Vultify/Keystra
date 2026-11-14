@@ -1,8 +1,6 @@
 //! Message format for the keyboard's RY5088 firmware: 64-byte feature reports with a one-byte checksum.
 //! Field layouts are documented in research/PROTOCOL-NOTES.md.
 
-use serde::Serialize;
-
 use super::error::KeyboardError;
 
 pub const VENDOR_ID: u16 = 0x046A;
@@ -28,26 +26,31 @@ pub const BLOCKED_COMMANDS: [u8; 15] = [
     0xF7, 0xF8, // wireless receiver status and receiver bootloader
 ];
 
-/// Where the checksum byte goes. Reads use Bit7; Bit8 is for lighting writes in a later phase.
+/// The keyboard's onboard profiles are numbered 0 to ONBOARD_SLOTS - 1.
+pub const ONBOARD_SLOTS: u8 = 4;
+
+/// Where the checksum byte goes. Reads and most writes use Bit7; lighting writes use Bit8.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Checksum {
     Bit7,
-    #[allow(dead_code)]
     Bit8,
 }
 
-/// The only commands Keystra can send. For now every variant is a GET.
+/// The only commands Keystra can send: four reads and the three writes it has decoded.
 // Tests list the variants with strum's EnumIter, so a new command can't slip past the safety tests.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(test, derive(strum::EnumIter))]
-#[serde(rename_all = "camelCase")]
-#[allow(clippy::enum_variant_names)] // Set commands join these in Phase 4.
 pub enum Command {
     GetDeviceInfo,
     GetProfile,
     GetPollingRate,
     GetLighting,
+    /// Switches to an onboard profile slot.
+    SetProfile(u8),
+    /// Sets the polling rate by firmware code (see `settings::POLLING_RATES`).
+    SetPollingRate(u8),
+    /// Bytes 1 to 7 of a lighting write, built by `LightingSettings::encode`.
+    SetLighting([u8; 7]),
 }
 
 impl Command {
@@ -57,11 +60,21 @@ impl Command {
             Command::GetProfile => 0x84,
             Command::GetPollingRate => 0x83,
             Command::GetLighting => 0x87,
+            Command::SetProfile(_) => 0x04,
+            Command::SetPollingRate(_) => 0x03,
+            Command::SetLighting(_) => 0x07,
         }
     }
 
     pub const fn checksum(self) -> Checksum {
-        Checksum::Bit7
+        match self {
+            Command::SetLighting(_) => Checksum::Bit8,
+            _ => Checksum::Bit7,
+        }
+    }
+
+    pub const fn is_write(self) -> bool {
+        matches!(self, Command::SetProfile(_) | Command::SetPollingRate(_) | Command::SetLighting(_))
     }
 
     pub const fn name(self) -> &'static str {
@@ -70,6 +83,9 @@ impl Command {
             Command::GetProfile => "GET_PROFILE",
             Command::GetPollingRate => "GET_REPORT",
             Command::GetLighting => "GET_LEDPARAM",
+            Command::SetProfile(_) => "SET_PROFILE",
+            Command::SetPollingRate(_) => "SET_REPORT",
+            Command::SetLighting(_) => "SET_LEDPARAM",
         }
     }
 }
@@ -92,6 +108,16 @@ pub fn build_request(command: Command) -> Result<[u8; REPORT_LEN], KeyboardError
     }
     let mut report = [0u8; REPORT_LEN];
     report[0] = id;
+    match command {
+        Command::SetProfile(slot) if slot >= ONBOARD_SLOTS => {
+            return Err(KeyboardError::InvalidSetting(format!("there is no onboard profile {}", slot + 1)));
+        }
+        Command::SetProfile(slot) => report[1] = slot,
+        // The rate code goes in byte 2 for both SET and GET.
+        Command::SetPollingRate(code) => report[2] = code,
+        Command::SetLighting(bytes) => report[1..8].copy_from_slice(&bytes),
+        _ => {}
+    }
     apply_checksum(&mut report, command.checksum());
     Ok(report)
 }
@@ -161,12 +187,30 @@ mod tests {
     }
 
     #[test]
-    fn every_request_matches_its_command() {
-        for command in Command::iter() {
+    fn every_read_request_matches_its_command() {
+        for command in Command::iter().filter(|c| !c.is_write()) {
             let request = build_request(command).unwrap();
             assert_eq!(request[0], command.id());
             assert_eq!(request[7], 255 - command.id());
         }
+    }
+
+    #[test]
+    fn writes_put_their_payload_where_magcrate_does() {
+        let switch = build_request(Command::SetProfile(2)).unwrap();
+        assert_eq!(&switch[..8], &[0x04, 2, 0, 0, 0, 0, 0, 255 - 0x06]);
+        let polling = build_request(Command::SetPollingRate(2)).unwrap();
+        assert_eq!(&polling[..8], &[0x03, 0, 2, 0, 0, 0, 0, 255 - 0x05]);
+        let lighting = build_request(Command::SetLighting([0x10, 0x02, 0x04, 0x08, 0xFA, 0xFF, 0xFA])).unwrap();
+        assert_eq!(&lighting[..8], &[0x07, 0x10, 0x02, 0x04, 0x08, 0xFA, 0xFF, 0xFA]);
+        let sum = lighting[..8].iter().fold(0u8, |acc, b| acc.wrapping_add(*b));
+        assert_eq!(lighting[8], 255 - sum, "lighting writes use the Bit8 checksum");
+        assert!(lighting[9..].iter().all(|b| *b == 0));
+    }
+
+    #[test]
+    fn switching_to_a_slot_that_does_not_exist_is_refused() {
+        assert!(build_request(Command::SetProfile(ONBOARD_SLOTS)).is_err());
     }
 
     #[test]
@@ -182,11 +226,13 @@ mod tests {
     }
 
     #[test]
-    fn allowlist_is_exactly_the_four_reads() {
+    fn allowlist_is_exactly_the_decoded_commands() {
         // Listed by value on purpose: the high bit alone doesn't prove a command is a read
         // (0xAC flash erase and 0xBA firmware data both have it).
         let ids: Vec<u8> = Command::iter().map(|c| c.id()).collect();
-        assert_eq!(ids, [0x8F, 0x84, 0x83, 0x87]);
+        assert_eq!(ids, [0x8F, 0x84, 0x83, 0x87, 0x04, 0x03, 0x07]);
+        let writes: Vec<u8> = Command::iter().filter(|c| c.is_write()).map(|c| c.id()).collect();
+        assert_eq!(writes, [0x04, 0x03, 0x07]);
     }
 
     #[test]

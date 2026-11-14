@@ -6,6 +6,10 @@ import type { Profile } from "./Profile";
  */
 export type ProfileList = { profiles: Array<Profile>, 
 /**
+ * The profile last applied to the keyboard, if any.
+ */
+activeId: number | null, 
+/**
  * Why changes are switched off, when the saved file couldn't be used. That file is left as it was.
  */
 readOnly: string | null, };

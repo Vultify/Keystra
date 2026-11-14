@@ -1,9 +1,10 @@
-//! Tauri commands the screens call. Keyboard work goes through the keyboard worker and profile
-//! changes through `ProfilesState::change`, both off the window's main thread.
+//! Tauri commands the screens call. Keyboard work and anything that applies a profile run off
+//! the window's main thread; profile changes go through `ProfilesState::change`.
 
-use serde::{Serialize, Serializer};
 use tauri::{AppHandle, State};
 
+use crate::apply::{self, SaveOutcome};
+use crate::error::CommandError;
 use crate::keyboard::{KeyboardError, KeyboardHandle, KeyboardStatus, Snapshot};
 use crate::profiles::{Profile, ProfileError, ProfileList, ProfilesState};
 
@@ -14,7 +15,20 @@ pub fn keyboard_status(keyboard: State<'_, KeyboardHandle>) -> KeyboardStatus {
 
 #[tauri::command]
 pub async fn read_keyboard(keyboard: State<'_, KeyboardHandle>) -> Result<Snapshot, KeyboardError> {
-    read_all(&keyboard).await
+    let keyboard = keyboard.inner().clone();
+    blocking(move || keyboard.read_all()).await
+}
+
+/// Sends a profile to the keyboard and makes it the active profile.
+#[tauri::command]
+pub async fn apply_profile(app: AppHandle, id: u32) -> Result<Snapshot, CommandError> {
+    blocking(move || apply::apply_profile(&app, id)).await
+}
+
+/// Saves a profile's settings, and sends them to the keyboard when it's the active profile.
+#[tauri::command]
+pub async fn save_profile(app: AppHandle, profile: Profile) -> Result<SaveOutcome, CommandError> {
+    blocking(move || Ok(apply::save_profile(&app, profile)?)).await
 }
 
 #[tauri::command]
@@ -40,8 +54,9 @@ pub async fn create_profile_from_keyboard(
     keyboard: State<'_, KeyboardHandle>,
     profiles: State<'_, ProfilesState>,
     name: String,
-) -> Result<Profile, SaveError> {
-    let snapshot = read_all(&keyboard).await?;
+) -> Result<Profile, CommandError> {
+    let keyboard = keyboard.inner().clone();
+    let snapshot = blocking(move || keyboard.read_all()).await?;
     Ok(profiles.change(&app, |store| store.create_with(&name, |profile| profile.take_reading(&snapshot)))?)
 }
 
@@ -53,15 +68,6 @@ pub async fn rename_profile(
     name: String,
 ) -> Result<Profile, ProfileError> {
     profiles.change(&app, |store| store.rename(id, &name))
-}
-
-#[tauri::command]
-pub async fn update_profile(
-    app: AppHandle,
-    profiles: State<'_, ProfilesState>,
-    profile: Profile,
-) -> Result<Profile, ProfileError> {
-    profiles.change(&app, |store| store.update(profile))
 }
 
 #[tauri::command]
@@ -77,8 +83,9 @@ pub async fn save_keyboard_to_profile(
     keyboard: State<'_, KeyboardHandle>,
     profiles: State<'_, ProfilesState>,
     id: u32,
-) -> Result<Profile, SaveError> {
-    let snapshot = read_all(&keyboard).await?;
+) -> Result<Profile, CommandError> {
+    let keyboard = keyboard.inner().clone();
+    let snapshot = blocking(move || keyboard.read_all()).await?;
     Ok(profiles.change(&app, |store| {
         let mut profile = store.get(id)?.clone();
         profile.take_reading(&snapshot);
@@ -86,25 +93,13 @@ pub async fn save_keyboard_to_profile(
     })?)
 }
 
-/// Runs a full read on a blocking thread, since the worker answers over a channel.
-async fn read_all(keyboard: &KeyboardHandle) -> Result<Snapshot, KeyboardError> {
-    let keyboard = keyboard.clone();
-    tauri::async_runtime::spawn_blocking(move || keyboard.read_all())
+/// Runs blocking work (the keyboard worker answers over a channel) on a background thread.
+async fn blocking<T, E>(job: impl FnOnce() -> Result<T, E> + Send + 'static) -> Result<T, E>
+where
+    T: Send + 'static,
+    E: From<KeyboardError> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(job)
         .await
-        .map_err(|_| KeyboardError::WorkerStopped)?
-}
-
-/// Saving from the keyboard can fail on either side.
-#[derive(Debug, thiserror::Error)]
-pub enum SaveError {
-    #[error(transparent)]
-    Keyboard(#[from] KeyboardError),
-    #[error(transparent)]
-    Profile(#[from] ProfileError),
-}
-
-impl Serialize for SaveError {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
-    }
+        .map_err(|_| E::from(KeyboardError::WorkerStopped))?
 }

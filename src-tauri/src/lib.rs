@@ -1,9 +1,11 @@
 //! Keystra desktop app: sets up logging, opens the profile store, starts the keyboard worker and
 //! registers commands.
 
+mod apply;
 #[cfg(test)]
 mod bindings;
 mod commands;
+mod error;
 mod keyboard;
 mod logging;
 mod profiles;
@@ -28,9 +30,10 @@ pub fn run() {
             commands::create_profile,
             commands::create_profile_from_keyboard,
             commands::rename_profile,
-            commands::update_profile,
+            commands::save_profile,
             commands::delete_profile,
             commands::save_keyboard_to_profile,
+            commands::apply_profile,
         ])
         .run(tauri::generate_context!());
 
