@@ -7,7 +7,7 @@ What we know about how the Cherry Xtrfy MX 8.2 Pro TMR talks to its software. So
 | Field | Value |
 |---|---|
 | USB vendor ID | `0x046A` (1130, Cherry) |
-| USB product ID | `0x012D` (301), wired. `0x0141` (321) is listed next to it, likely the 2.4 GHz dongle. |
+| USB product ID | `0x012D` (301), wired, confirmed on the real keyboard (device ID 2494, firmware `0x0321`). `0x0141` (321) is listed next to it, likely the 2.4 GHz dongle. |
 | Config interface | Usage page `0xFFFF`, usage `0x02` |
 | Chip / firmware family | RongYuan **RY5088**, the same family as MonsGeek and Akko magnetic boards |
 | MagCrate device names | `ry5088_cherrymx82_8k_8k` (US, id 2494), `ry5088_cherrymx82_de_8k_8k` (DE, id 3098) |
@@ -19,17 +19,31 @@ MagCrate is an Electron app. The screens and message building are JavaScript (`d
 
 - 64-byte HID **feature reports**, report ID 0. Send with set-feature, read the reply with get-feature.
 - Byte 0 is the command. Replies echo it back in byte 0.
+- Messages are padded to at least 8 bytes. Every read (GET) uses the Bit7 checksum.
 - Checksum "Bit7" (most commands): byte 7 = `255 - (sum of bytes 0..6) & 0xFF`.
-- Checksum "Bit8" (lighting commands): byte 8 = `255 - (sum of bytes 0..7) & 0xFF`.
+- Checksum "Bit8" (lighting writes): byte 8 = `255 - (sum of bytes 0..7) & 0xFF`.
+- A read is: wait about 10 ms, set-feature the request, wait about 10 ms, get-feature the reply.
 - MagCrate waits about 100 ms after each write.
+- The keyboard has **one reply slot** shared by every app. If MagCrate (or anything else) sends a request between Keystra's send and read, Keystra gets the other app's reply, or all zeros if the other app already took it. Keystra checks the echo byte and resends with a growing wait (25, 50, 100, 200 ms). Tested against a program reading 50 times a second: 11 of 12 full reads succeeded.
+
+## Read replies (confirmed in MagCrate's RY5088 code)
+
+| Cmd | Reply bytes |
+|---|---|
+| `0x8F` GET_USB_VERSION | 0 = `0x8F` echo, 1..4 = device ID (u32, little endian; MX 8.2 US is 2494, DE is 3098), 7..8 = firmware version (`byte8 << 8 | byte7`) |
+| `0x84` GET_PROFILE | 1 = active profile index |
+| `0x83` GET_REPORT | 2 = polling code: 0=8000, 1=4000, 2=2000, 3=1000, 4=500, 5=250, 6=125 Hz |
+| `0x87` GET_LEDPARAM | 1 = mode, 2 = 4 - speed, 3 = brightness 0..4, 4 = high nibble direction, low nibble color choice (see below), 5..7 = RGB (`FA FF FA` means white) |
+
+**Color choice (low nibble of byte 4) depends on the mode.** Most modes: 8 = rainbow, 7 = the stored RGB, 0..6 = a preset color. Music Sync (22) and Music Sync 3 (20): 0 = rainbow, 4 = the stored RGB. Off (0), Spectrum Cycle (3), Custom (13) and Light Shadow (21) set their own colors, so the nibble isn't a color choice. The table lives in `src-tauri/src/keyboard/settings.rs` (`LIGHTING_MODES`).
 
 ## Commands we need (stock firmware)
 
 | Cmd | Name | Use in Keystra |
 |---|---|---|
 | `0x04` / `0x84` | SET / GET_PROFILE | Profile switching. Byte 1 = profile index. |
-| `0x03` / `0x83` | SET / GET_REPORT | Polling rate. Codes: 0=8000, 1=4000, 2=2000, 3=1000, 4=500, 5=250 Hz (MagCrate's table says 125 for code 5; the open docs say 250). |
-| `0x07` / `0x87` | SET / GET_LEDPARAM | Lighting mode. Bytes: 1 mode, 2 speed (inverted, 4 - speed), 3 brightness 0..4, 4 options (high nibble = direction, low nibble 7 = single color, 8 = rainbow), 5..7 RGB. Uses Bit8. |
+| `0x03` / `0x83` | SET / GET_REPORT | Polling rate. The RY5088 code uses: 0=8000, 1=4000, 2=2000, 3=1000, 4=500, 5=250, 6=125 Hz. The rate code goes in byte 2 for both SET and GET. |
+| `0x07` / `0x87` | SET / GET_LEDPARAM | Lighting mode. Bytes: 1 mode, 2 speed (inverted, 4 - speed), 3 brightness 0..4, 4 options (high nibble = direction, low nibble = color choice, which depends on the mode), 5..7 RGB. SET uses Bit8, GET uses Bit7. |
 | `0x0C` / `0x8C` | SET / GET_USERPIC | Static per-key colors ("Custom" mode, 5 slots). 7 packets of 56 bytes. Writes flash, so it's for saving a pattern, never for animation. |
 | `0x09` / `0x89` | SET / GET_KBOPTION | Keyboard options (one shared payload). |
 | `0x0A` / `0x8A` | SET / GET_KEYMATRIX | Key remapping. |
@@ -38,7 +52,7 @@ MagCrate is an Electron app. The screens and message building are JavaScript (`d
 
 ## Lighting modes on this keyboard
 
-MX 8.2 supports these modes (MagCrate's English name in brackets): Off 0, Constant 1, Breathing 2, Neon 3, Wave 4, Ripple 5 ("Water Ripple"), Raindrop 6 ("Star Dots"), Snake 7, Reactive 8 ("Shadow"), Converge 9 ("Layers"), Sine Wave 10, Kaleidoscope 11, Line Wave 12, Custom 13, Laser 14, Circle Wave 15 ("Loop"), Color Grid 16, Snowfall 17, Meteor 18, Reactive Off 19 ("Silent Snow"), Screen Sync 21 ("Light Shadow"), Music Sync 22.
+MX 8.2 supports these modes, by ID with MagCrate's English names (Keystra shows the same names for now; Phase 5 decides plain-language names): Off 0, Constant Light 1, Breathing 2, Spectrum Cycle 3, Flowing Light 4, Water Ripple 5, Star Dots 6, Flow 7, Shadow 8, Layers 9, Sine Wave 10, Color Spring 11, Neon 12, Custom 13, Radiant 14, Loop 15, Color Grid 16, Snowfall 17, Meteor 18, Silent Snow 19, Light Shadow 21, Music Sync 22. (Mode 20, Music Sync 3, exists in the firmware family but isn't offered on the MX 8.2.)
 
 Every mode takes **one** color or rainbow. No mode has a separate base color.
 
@@ -55,11 +69,26 @@ So on stock firmware the exact effect isn't possible without risking the keyboar
 
 ## Never send
 
-Blocked in Keystra no matter what: `0x01` factory reset (MagCrate stays the reset tool), `0x50` SET_SKU, `0xAC` flash chip erase, `0x30`/`0x31` OLED bootloader, `0x1C`/`0x1E` magnetism calibration, and anything in the firmware upgrade or DFU paths. Keystra only sends commands from an allowlist.
+Blocked in Keystra no matter what. Keystra only sends commands from an allowlist, and these are also rejected in code as a second guard:
+
+| Cmd | What it does |
+|---|---|
+| `0x01` | Factory reset (MagCrate stays the reset tool) |
+| `0x1C`, `0x1E` | Magnetism calibration |
+| `0x30`, `0x31`, `0xB0`, `0xB1` | OLED bootloader |
+| `0x32`, `0xB2` | Screen flash data |
+| `0x50` | SET_SKU |
+| `0x7F` | **Enter USB bootloader** (`7F 55 AA 55 AA`, the first step of a firmware update) |
+| `0xAC` | Flash chip erase |
+| `0xBA` | Firmware upgrade data (`BA C0` start, `BA C2` finish) |
+| `0xF7`, `0xF8` | Wireless receiver status and **enter receiver bootloader** |
+
+Keystra also never opens the bootloader-mode devices MagCrate lists (VID `0x046A` with PID `0x012E` or `0x0130`).
+
+The high bit does **not** mean a command is a harmless read: `0xAC`, `0xB0`..`0xB2`, `0xBA`, `0xF7` and `0xF8` all have it. Only the explicit allowlist decides what may be sent.
 
 ## Open questions
 
-- Confirm the wired PID (`0x012D`) in Device Manager.
 - The 2.4 GHz dongle path is not covered yet. Wired first.
 - Whether Cherry's firmware build matches the MonsGeek one byte for byte. Verify each command with a read (GET) before any write.
 

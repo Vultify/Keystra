@@ -1,5 +1,5 @@
 import keystraMark from "@/assets/keystra-mark.png";
-import { Badge } from "@/components/ui/badge";
+import { KeyboardStatusBadge } from "@/components/keyboard-status-badge";
 import {
   Sidebar,
   SidebarContent,
@@ -11,15 +11,17 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import type { KeyboardStatus } from "@/lib/keyboard";
 import { PAGES, type PageId } from "@/pages";
 
 type AppSidebarProps = {
   activePage: PageId;
   onNavigate: (page: PageId) => void;
+  status: KeyboardStatus | null;
 };
 
 // Left navigation with the brand, page links and the keyboard connection status.
-export function AppSidebar({ activePage, onNavigate }: AppSidebarProps) {
+export function AppSidebar({ activePage, onNavigate, status }: AppSidebarProps) {
   return (
     <Sidebar collapsible="none" className="h-svh border-r">
       <SidebarHeader className="px-4 pt-5 pb-4">
@@ -52,7 +54,7 @@ export function AppSidebar({ activePage, onNavigate }: AppSidebarProps) {
       </SidebarContent>
 
       <SidebarFooter className="p-4">
-        <Badge variant="outline">Keyboard not connected</Badge>
+        <KeyboardStatusBadge status={status} />
       </SidebarFooter>
     </Sidebar>
   );

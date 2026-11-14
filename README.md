@@ -12,12 +12,12 @@ I built Keystra because the official software is confusing to use, has no easy w
 
 ## Status
 
-Early development. The app shell is in place, and keyboard support is next. See [ROADMAP.md](ROADMAP.md) for the build order.
+Early development. Keystra finds the keyboard over USB and reads its current settings; changing settings comes next. See [ROADMAP.md](ROADMAP.md) for the build order.
 
 ## Planned features
 
 - Lighting: every built-in effect, color, brightness, and speed
-- Polling rate, from 250 Hz up to 8000 Hz
+- Polling rate, up to 8000 Hz
 - Profiles with tray switching and automatic switching per game
 - Later: per-key actuation, rapid trigger, key remapping, and custom per-key colors
 
@@ -32,6 +32,12 @@ You need Node.js 24, Rust (stable, MSVC), and the Visual Studio C++ Build Tools.
 ```bash
 npm install
 npm run tauri dev
+```
+
+To run the tests:
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 To build the Windows installer:
