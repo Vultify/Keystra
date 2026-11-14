@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 
 use super::error::ProfileError;
-use super::model::{Profile, ProfileFile, ProfileList, SCHEMA_VERSION};
+use super::model::{MAX_NAME_LEN, Profile, ProfileFile, ProfileList, SCHEMA_VERSION, same_name};
 
 pub const FILE_NAME: &str = "profiles.json";
 
@@ -120,6 +120,27 @@ impl ProfileStore {
         })
     }
 
+    /// The first name not already taken: `stem` plus `suffix`, then with " 2", " 3" and so on after
+    /// it. The stem is shortened so every name fits MAX_NAME_LEN.
+    pub fn free_name(&self, stem: &str, suffix: &str) -> String {
+        let taken = |name: &str| self.file.profiles.iter().any(|p| same_name(&p.name, name));
+        (1..)
+            .map(|n| {
+                let ending = if n == 1 { suffix.to_string() } else { format!("{suffix} {n}") };
+                let room = MAX_NAME_LEN.saturating_sub(ending.chars().count());
+                let stem: String = stem.trim().chars().take(room).collect();
+                format!("{}{ending}", stem.trim_end())
+            })
+            .find(|name| !taken(name))
+            .expect("some number is always free")
+    }
+
+    /// Copies a profile under a free "<name> copy" name.
+    pub fn duplicate(&mut self, id: u32) -> Result<Profile, ProfileError> {
+        let name = self.free_name(&self.get(id)?.name, " copy");
+        self.create(&name, Some(id))
+    }
+
     /// Adds a factory-settings profile after `adjust` changes its settings, in a single save.
     pub fn create_with(&mut self, name: &str, adjust: impl FnOnce(&mut Profile)) -> Result<Profile, ProfileError> {
         self.change(|file| {
@@ -148,13 +169,14 @@ impl ProfileStore {
         })
     }
 
+    /// Removes a profile. The one in use can't go, so there's always a profile the keyboard follows.
     pub fn delete(&mut self, id: u32) -> Result<(), ProfileError> {
         self.change(|file| {
+            if file.active_id == Some(id) {
+                return Err(ProfileError::InUse);
+            }
             let before = file.profiles.len();
             file.profiles.retain(|p| p.id != id);
-            if file.active_id == Some(id) {
-                file.active_id = None;
-            }
             match file.profiles.len() {
                 0 => Err(ProfileError::LastProfile),
                 n if n == before => Err(ProfileError::NotFound),
@@ -363,15 +385,33 @@ mod tests {
     }
 
     #[test]
-    fn the_active_profile_is_saved_and_cleared_on_delete() {
+    fn the_active_profile_is_saved_and_cannot_be_deleted() {
         let dir = TempDir::new("active");
         let mut store = ProfileStore::open(dir.file());
         let gaming = store.create("Gaming", None).unwrap();
         store.set_active(gaming.id).unwrap();
         assert_eq!(ProfileStore::open(dir.file()).list().active_id, Some(gaming.id));
         assert!(store.set_active(99).is_err(), "unknown profile");
+        assert!(matches!(store.delete(gaming.id), Err(ProfileError::InUse)));
+        store.set_active(1).unwrap();
         store.delete(gaming.id).unwrap();
-        assert_eq!(store.list().active_id, None);
+        assert_eq!(store.list().active_id, Some(1));
+    }
+
+    #[test]
+    fn copies_get_free_names_that_always_fit() {
+        let dir = TempDir::new("copy-names");
+        let mut store = ProfileStore::open(dir.file());
+        assert_eq!(store.duplicate(1).unwrap().name, "Default copy");
+        assert_eq!(store.duplicate(1).unwrap().name, "Default copy 2");
+        for (length, letter) in (34..=MAX_NAME_LEN).zip('a'..) {
+            let long = store.create(&letter.to_string().repeat(length), None).unwrap();
+            let first = store.duplicate(long.id).unwrap();
+            let second = store.duplicate(long.id).unwrap();
+            assert!(first.name.ends_with(" copy") && second.name.ends_with(" copy 2"), "{length}: {first:?} {second:?}");
+            assert!(first.name.chars().count() <= MAX_NAME_LEN && second.name.chars().count() <= MAX_NAME_LEN);
+        }
+        assert_eq!(store.free_name("My keyboard", ""), "My keyboard");
     }
 
     #[test]

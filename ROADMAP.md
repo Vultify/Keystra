@@ -57,15 +57,15 @@ The two features I use, starting with the harmless one.
 
 ## Phase 5: The real UI
 
-- [ ] One shared way for screens to read the keyboard's settings (a hook like `useKeyboardStatus`), moved out of the Diagnostics page
-- [ ] Keyboard picture that shows the current lighting
-- [ ] Lighting page with live preview and plain-language mode names
-- [ ] Performance page (polling rate, with a short note on what it does)
-- [ ] Profiles page: create, rename, duplicate, delete, switch
-- [ ] First-run screen that finds the keyboard and explains the basics in one view
-- [ ] Clear error states for "keyboard not found" and "keyboard is busy" (for example, when MagCrate is open)
+- [x] One shared way for screens to read the keyboard's settings (a hook like `useKeyboardStatus`), moved out of the Diagnostics page
+- [x] Keyboard picture that shows the current lighting
+- [x] Lighting page with live preview and plain-language mode names
+- [x] Performance page (polling rate, with a short note on what it does)
+- [x] Profiles page: create, rename, duplicate, delete, switch
+- [x] First-run screen that finds the keyboard and explains the basics in one view
+- [x] Clear error states for "keyboard not found" and "keyboard is busy" (for example, when MagCrate is open)
 
-**Checkpoint:** someone who has never used it can change lighting and switch profiles without help.
+**Checkpoint (passed 2026-11-14):** someone who has never used it can change lighting and switch profiles without help.
 
 ## Phase 6: Tray and background
 
@@ -75,6 +75,8 @@ The two features I use, starting with the harmless one.
 - [ ] Closing the window minimizes to the tray
 - [ ] Notice plugging and unplugging from Windows device events instead of checking every second, since Keystra now runs all day
 
+- [ ] README status line and CHANGELOG reread
+
 **Checkpoint:** profile switching works from the tray with the window closed.
 
 ## Phase 7: Auto-switch per game
@@ -82,6 +84,8 @@ The two features I use, starting with the harmless one.
 - [ ] Watch the active window's program
 - [ ] Link programs to profiles in the Profiles page
 - [ ] Switch automatically, and fall back to a default profile when the game closes
+
+- [ ] README status line and CHANGELOG reread
 
 **Checkpoint:** opening a linked game switches the profile within a second.
 
@@ -94,6 +98,7 @@ Add these one at a time. Each one is read-only first, then gets writes.
 - [ ] Rapid trigger
 - [ ] Key remapping
 - [ ] Multi-action (DKS)
+- [ ] README status line and CHANGELOG reread
 
 ## Phase 9: Release
 

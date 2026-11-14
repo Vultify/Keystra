@@ -15,8 +15,6 @@ pub use lighting::LightingSettings;
 pub use protocol::ONBOARD_SLOTS;
 pub use settings::POLLING_RATES;
 pub use session::{ApplyRequest, Snapshot};
-pub use worker::{KeyboardHandle, KeyboardStatus};
+pub use worker::{KeyboardHandle, KeyboardStatus, STATUS_EVENT};
 #[cfg(test)]
 pub use lighting::{Lighting, MAX_LEVEL, lighting_modes};
-#[cfg(test)]
-pub use worker::STATUS_EVENT;

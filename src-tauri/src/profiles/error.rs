@@ -14,6 +14,9 @@ pub enum ProfileError {
     #[error("the last profile can't be deleted")]
     LastProfile,
 
+    #[error("switch to another profile before deleting the one in use")]
+    InUse,
+
     #[error("the profiles file was saved by a newer Keystra (format {0}), so it's left untouched")]
     TooNew(u32),
 

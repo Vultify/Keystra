@@ -20,6 +20,7 @@ pub fn run() {
             log::info!("Keystra {} starting", app.package_info().version);
             let profiles_path = app.path().app_data_dir()?.join(profiles::FILE_NAME);
             app.manage(profiles::ProfilesState::new(profiles::ProfileStore::open(profiles_path)));
+            apply::follow_connections(app.handle());
             app.manage(keyboard::KeyboardHandle::spawn(app.handle().clone()));
             Ok(())
         })
@@ -29,6 +30,7 @@ pub fn run() {
             commands::list_profiles,
             commands::create_profile,
             commands::create_profile_from_keyboard,
+            commands::duplicate_profile,
             commands::rename_profile,
             commands::save_profile,
             commands::delete_profile,

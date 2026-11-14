@@ -108,3 +108,22 @@
     @apply font-heading tracking-wide;
   }
 }
+
+/* Keyboard picture motion: a slow hue shift for rainbow effects and a soft pulse for Breathing. */
+@keyframes keystra-hue {
+  to {
+    filter: hue-rotate(360deg);
+  }
+}
+
+@keyframes keystra-breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keystra-motion {
+    animation: none !important;
+  }
+}

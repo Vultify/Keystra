@@ -93,7 +93,7 @@ Music Sync 3 (20) isn't in the MX 8.2's layout, so Keystra reads it but never wr
 
 ## Lighting modes on this keyboard
 
-MX 8.2 supports these modes, by ID with MagCrate's English names (Keystra shows the same names for now; Phase 5 decides plain-language names): Off 0, Constant Light 1, Breathing 2, Spectrum Cycle 3, Flowing Light 4, Water Ripple 5, Star Dots 6, Flow 7, Shadow 8, Layers 9, Sine Wave 10, Color Spring 11, Neon 12, Custom 13, Radiant 14, Loop 15, Color Grid 16, Snowfall 17, Meteor 18, Silent Snow 19, Light Shadow 21, Music Sync 22. (Mode 20, Music Sync 3, exists in the firmware family but isn't offered on the MX 8.2.)
+MX 8.2 supports these modes, by ID with MagCrate's English names (Keystra keeps these names and adds a plain description of each in `src/lib/effect-guide.ts`): Off 0, Constant Light 1, Breathing 2, Spectrum Cycle 3, Flowing Light 4, Water Ripple 5, Star Dots 6, Flow 7, Shadow 8, Layers 9, Sine Wave 10, Color Spring 11, Neon 12, Custom 13, Radiant 14, Loop 15, Color Grid 16, Snowfall 17, Meteor 18, Silent Snow 19, Light Shadow 21, Music Sync 22. (Mode 20, Music Sync 3, exists in the firmware family but isn't offered on the MX 8.2.)
 
 Every mode takes **one** color or rainbow. No mode has a separate base color.
 

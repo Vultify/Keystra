@@ -19,9 +19,9 @@ pub async fn read_keyboard(keyboard: State<'_, KeyboardHandle>) -> Result<Snapsh
     blocking(move || keyboard.read_all()).await
 }
 
-/// Sends a profile to the keyboard and makes it the active profile.
+/// Makes a profile the one in use and sends it to the keyboard.
 #[tauri::command]
-pub async fn apply_profile(app: AppHandle, id: u32) -> Result<Snapshot, CommandError> {
+pub async fn apply_profile(app: AppHandle, id: u32) -> Result<Option<Snapshot>, CommandError> {
     blocking(move || apply::apply_profile(&app, id)).await
 }
 
@@ -47,17 +47,26 @@ pub async fn create_profile(
 }
 
 /// Reads the keyboard first and only then adds the profile, so a failed read creates nothing.
-/// Read-only toward the keyboard.
+/// Without a name it gets a free "My keyboard" one. Read-only toward the keyboard.
 #[tauri::command]
 pub async fn create_profile_from_keyboard(
     app: AppHandle,
     keyboard: State<'_, KeyboardHandle>,
     profiles: State<'_, ProfilesState>,
-    name: String,
+    name: Option<String>,
 ) -> Result<Profile, CommandError> {
     let keyboard = keyboard.inner().clone();
     let snapshot = blocking(move || keyboard.read_all()).await?;
-    Ok(profiles.change(&app, |store| store.create_with(&name, |profile| profile.take_reading(&snapshot)))?)
+    Ok(profiles.change(&app, |store| {
+        let name = name.unwrap_or_else(|| store.free_name("My keyboard", ""));
+        store.create_with(&name, |profile| profile.take_reading(&snapshot))
+    })?)
+}
+
+/// Copies a profile under a free "<name> copy" name.
+#[tauri::command]
+pub async fn duplicate_profile(app: AppHandle, profiles: State<'_, ProfilesState>, id: u32) -> Result<Profile, ProfileError> {
+    profiles.change(&app, |store| store.duplicate(id))
 }
 
 #[tauri::command]

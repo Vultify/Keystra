@@ -26,7 +26,7 @@ export const PAGES: PageInfo[] = [
   {
     id: "profiles",
     title: "Profiles",
-    description: "Save setups and switch between them, or link them to your games.",
+    description: "Save setups and switch between them.",
     icon: LayersIcon,
   },
   {

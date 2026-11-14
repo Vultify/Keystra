@@ -12,13 +12,12 @@ I built Keystra because the official software is confusing to use, has no easy w
 
 ## Status
 
-Early development. Keystra finds the keyboard over USB, saves profiles on this PC, and applies them: it switches the onboard profile and sets the polling rate and lighting. For now this all lives on a Diagnostics test page; the real Lighting, Performance and Profiles screens come next. See [ROADMAP.md](ROADMAP.md) for the build order.
+Early development. Keystra finds the keyboard over USB and has its real screens: Lighting (every built-in effect, with a picture of the keyboard lit the same way), Performance (polling rate) and Profiles (create, rename, duplicate, delete and switch). Profiles are saved on this PC and sent to the keyboard on every switch and whenever it's plugged back in. Tray switching and per-game switching come next. See [ROADMAP.md](ROADMAP.md) for the build order.
 
 ## Planned features
 
-- Lighting: every built-in effect, color, brightness, and speed
-- Polling rate, up to 8000 Hz
-- Profiles with tray switching and automatic switching per game
+- Profile switching from the tray
+- Automatic profile switching per game
 - Later: per-key actuation, rapid trigger, key remapping, and custom per-key colors
 
 ## Safety

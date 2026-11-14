@@ -12,16 +12,18 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import type { KeyboardStatus } from "@/lib/keyboard";
+import type { Profile } from "@/lib/profiles";
 import { PAGES, type PageId } from "@/pages";
 
 type AppSidebarProps = {
   activePage: PageId;
   onNavigate: (page: PageId) => void;
   status: KeyboardStatus | null;
+  activeProfile: Profile | null;
 };
 
-// Left navigation with the brand, page links and the keyboard connection status.
-export function AppSidebar({ activePage, onNavigate, status }: AppSidebarProps) {
+// Left navigation with the brand, page links, the profile in use and the keyboard connection status.
+export function AppSidebar({ activePage, onNavigate, status, activeProfile }: AppSidebarProps) {
   return (
     <Sidebar collapsible="none" className="h-svh border-r">
       <SidebarHeader className="px-4 pt-5 pb-4">
@@ -53,7 +55,13 @@ export function AppSidebar({ activePage, onNavigate, status }: AppSidebarProps) 
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="p-4">
+      <SidebarFooter className="flex flex-col items-start gap-2 p-4">
+        {activeProfile && (
+          <div className="flex flex-col text-sm">
+            <span className="text-xs text-muted-foreground">Profile in use</span>
+            <span className="font-medium">{activeProfile.name}</span>
+          </div>
+        )}
         <KeyboardStatusBadge status={status} />
       </SidebarFooter>
     </Sidebar>

@@ -22,9 +22,17 @@ export function createProfile(name: string, copyFrom?: number): Promise<Profile>
   return invoke<Profile>("create_profile", { name, copyFrom: copyFrom ?? null });
 }
 
-/** Reads the keyboard, then adds a profile holding its settings. Creates nothing if the read fails. */
-export function createProfileFromKeyboard(name: string): Promise<Profile> {
-  return invoke<Profile>("create_profile_from_keyboard", { name });
+/**
+ * Reads the keyboard, then adds a profile holding its settings. Creates nothing if the read fails.
+ * Without a name it gets a free "My keyboard" one.
+ */
+export function createProfileFromKeyboard(name?: string): Promise<Profile> {
+  return invoke<Profile>("create_profile_from_keyboard", { name: name ?? null });
+}
+
+/** Copies a profile under a free "<name> copy" name. */
+export function duplicateProfile(id: number): Promise<Profile> {
+  return invoke<Profile>("duplicate_profile", { id });
 }
 
 export function renameProfile(id: number, name: string): Promise<Profile> {
@@ -44,11 +52,12 @@ export function deleteProfile(id: number): Promise<void> {
 }
 
 /**
- * Sends a profile's onboard profile, polling rate and lighting to the keyboard and makes it the
- * active profile. The new settings also arrive through `onKeyboardSettings`.
+ * Makes a profile the one in use and sends its onboard profile, polling rate and lighting to the
+ * keyboard. Resolves to `null` when a newer change took its place; the new settings also arrive
+ * through `onKeyboardSettings`.
  */
-export function applyProfile(id: number): Promise<Snapshot> {
-  return invoke<Snapshot>("apply_profile", { id });
+export function applyProfile(id: number): Promise<Snapshot | null> {
+  return invoke<Snapshot | null>("apply_profile", { id });
 }
 
 /** Reads the keyboard and saves its lighting, polling rate and onboard profile into a profile. */
