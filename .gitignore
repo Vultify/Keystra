@@ -1,0 +1,26 @@
+# Private notes and secrets
+CLAUDE.md
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+*.keystore
+
+# Cherry's software and analysis output (never commit)
+research/vendor/
+
+# Dependencies and build output
+node_modules/
+dist/
+*.local
+
+# Logs
+*.log
+
+# Editor files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store

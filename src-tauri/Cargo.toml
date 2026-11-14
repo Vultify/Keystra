@@ -1,0 +1,30 @@
+[package]
+name = "keystra"
+version = "0.1.0"
+description = "A clean settings app for the Cherry Xtrfy MX 8.2 Pro TMR keyboard"
+authors = ["Vultify <233528661+Vultify@users.noreply.github.com>"]
+license = "MIT"
+edition = "2024"
+rust-version = "1.90"
+
+# The app logic and its unit tests live in this library; main.rs just calls run().
+# Windows only, so it builds as a plain Rust library (the mobile staticlib and cdylib outputs are dropped).
+[lib]
+name = "keystra_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Small, fast release builds.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
