@@ -2,6 +2,7 @@
 //! thread that owns the device.
 
 mod conflicts;
+mod device_events;
 mod error;
 mod lighting;
 mod protocol;

@@ -12,11 +12,10 @@ I built Keystra because the official software is confusing to use, has no easy w
 
 ## Status
 
-Early development. Keystra finds the keyboard over USB and has its real screens: Lighting (every built-in effect, with a picture of the keyboard lit the same way), Performance (polling rate) and Profiles (create, rename, duplicate, delete and switch). Profiles are saved on this PC and sent to the keyboard on every switch and whenever it's plugged back in. Tray switching and per-game switching come next. See [ROADMAP.md](ROADMAP.md) for the build order.
+Early development. Keystra finds the keyboard over USB and has its real screens: Lighting (every built-in effect, with a picture of the keyboard lit the same way), Performance (polling rate) and Profiles (create, rename, duplicate, delete and switch). Profiles are saved on this PC and sent to the keyboard on every switch and whenever it's plugged back in. Keystra lives in the tray: switch profiles from its menu with the window closed, and optionally start it with Windows. Per-game switching comes next. See [ROADMAP.md](ROADMAP.md) for the build order.
 
 ## Planned features
 
-- Profile switching from the tray
 - Automatic profile switching per game
 - Later: per-key actuation, rapid trigger, key remapping, and custom per-key colors
 
@@ -28,6 +27,7 @@ Keystra never sends firmware updates. It only sends commands that have been deco
 
 - Profiles: `%APPDATA%\com.vultify.keystra\profiles.json`. If that file is ever not valid JSON, Keystra keeps it next to the new one as `profiles.damaged-<number>.json`. If it is valid JSON but can't be used, Keystra leaves it alone and shows your profiles as read-only.
 - Logs: `%LOCALAPPDATA%\com.vultify.keystra\logs\keystra.log`
+- Start with Windows (off unless you turn it on in Settings): a `Keystra` entry under `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`. Turning the setting off removes it.
 
 ## Building from source
 

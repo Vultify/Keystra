@@ -9,20 +9,28 @@ use std::time::{Duration, Instant};
 
 use hidapi::HidApi;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::conflicts::{self, MagCrateState};
+use super::device_events::DeviceWatch;
 use super::error::KeyboardError;
 use super::protocol::{Command, PRODUCT_ID, USAGE, USAGE_PAGE, VENDOR_ID};
 use super::session::{self, ApplyRequest, Snapshot};
 use super::settings::{self, DeviceInfo};
 use super::transport::{self, HidTransport, Transport};
 
-/// How often the worker checks whether the keyboard was plugged in or pulled out.
+/// How often the worker looks for the keyboard when Windows can't announce device changes.
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 
-/// While connected, MagCrate is looked for every this many polls.
-const CONFLICT_CHECK_EVERY: u32 = 3;
+/// With device announcements, the worker still looks this often in case one was missed.
+const BACKSTOP_INTERVAL: Duration = Duration::from_secs(30);
+
+/// How long to let a burst of device changes settle before looking. A keyboard brings several
+/// USB interfaces with it, and they arrive one after another.
+const SETTLE_DELAY: Duration = Duration::from_millis(250);
+
+/// While connected, how often MagCrate is looked for.
+const MAGCRATE_CHECK_INTERVAL: Duration = Duration::from_secs(3);
 
 /// Waits before retrying a keyboard that failed to answer, growing with each failure.
 const RETRY_DELAYS: [Duration; 4] = [
@@ -56,6 +64,8 @@ pub enum KeyboardStatus {
 enum Job {
     ReadAll(Sender<Result<Snapshot, KeyboardError>>),
     Apply(ApplyRequest, Sender<Result<Snapshot, KeyboardError>>),
+    /// Windows reported a USB input device arriving or leaving.
+    DeviceChanged,
 }
 
 /// Cheap handle the commands use to talk to the worker thread.
@@ -66,24 +76,31 @@ pub struct KeyboardHandle {
 }
 
 impl KeyboardHandle {
-    pub fn spawn(app: AppHandle) -> Self {
+    /// Registers the handle with the app, then starts the worker thread. In that order, anything
+    /// reacting to the worker's first announcement can always find the handle.
+    pub fn start(app: &AppHandle) {
         let (jobs, inbox) = mpsc::channel();
         let status = Arc::new(Mutex::new(KeyboardStatus::Disconnected));
+        let changes = jobs.clone();
+        let watch = DeviceWatch::hid_changes(move || {
+            let _ = changes.send(Job::DeviceChanged);
+        });
         let worker = Worker {
-            app,
+            app: app.clone(),
             status: Arc::clone(&status),
             api: None,
             device: None,
             skips: Skips::default(),
             magcrate: MagCrateState::Closed,
-            polls: 0,
+            schedule: Schedule::new(watch.is_some(), Instant::now()),
+            _watch: watch,
             last_apply: None,
         };
+        app.manage(Self { jobs, status });
         thread::Builder::new()
             .name("keyboard-worker".into())
             .spawn(move || worker.run(inbox))
             .expect("failed to start the keyboard worker thread");
-        Self { jobs, status }
     }
 
     pub fn status(&self) -> KeyboardStatus {
@@ -195,6 +212,60 @@ impl Skips {
     fn clear_failures(&mut self) {
         self.cooldown = None;
     }
+
+    /// When a device that's cooling down may be tried again, if that's still ahead.
+    fn retry_at(&self, now: Instant) -> Option<Instant> {
+        self.cooldown.as_ref().map(|c| c.retry_at).filter(|&at| at > now)
+    }
+}
+
+/// When the worker next looks for the keyboard and for MagCrate. Only timing, so it's tested
+/// without USB.
+#[derive(Debug)]
+struct Schedule {
+    /// Whether Windows announces device changes. Without them the worker looks every second.
+    watching: bool,
+    look_at: Instant,
+    magcrate_at: Instant,
+}
+
+impl Schedule {
+    fn new(watching: bool, now: Instant) -> Self {
+        Self {
+            watching,
+            look_at: now,
+            magcrate_at: now + MAGCRATE_CHECK_INTERVAL,
+        }
+    }
+
+    /// Plans the next look after one just happened, sooner when a cooling device becomes due.
+    fn looked(&mut self, now: Instant, retry_at: Option<Instant>) {
+        let regular = now + if self.watching { BACKSTOP_INTERVAL } else { POLL_INTERVAL };
+        self.look_at = retry_at.map_or(regular, |at| at.min(regular));
+    }
+
+    /// A device arrived or left, so look once the burst of changes settles.
+    fn device_changed(&mut self, now: Instant) {
+        self.look_at = self.look_at.min(now + SETTLE_DELAY);
+    }
+
+    fn magcrate_checked(&mut self, now: Instant) {
+        self.magcrate_at = now + MAGCRATE_CHECK_INTERVAL;
+    }
+
+    fn look_due(&self, now: Instant) -> bool {
+        now >= self.look_at
+    }
+
+    fn magcrate_due(&self, now: Instant) -> bool {
+        now >= self.magcrate_at
+    }
+
+    /// How long to wait for a job before the next timed check. MagCrate only matters while connected.
+    fn wait(&self, now: Instant, connected: bool) -> Duration {
+        let next = if connected { self.look_at.min(self.magcrate_at) } else { self.look_at };
+        next.saturating_duration_since(now)
+    }
 }
 
 struct Worker {
@@ -204,7 +275,9 @@ struct Worker {
     device: Option<Connected>,
     skips: Skips,
     magcrate: MagCrateState,
-    polls: u32,
+    schedule: Schedule,
+    /// Keeps Windows' device announcements coming for as long as the worker runs.
+    _watch: Option<DeviceWatch>,
     last_apply: Option<Instant>,
 }
 
@@ -213,24 +286,37 @@ impl Worker {
         log::info!("keyboard worker started");
         self.refresh();
         loop {
-            match inbox.recv_timeout(POLL_INTERVAL) {
+            let wait = self.schedule.wait(Instant::now(), self.device.is_some());
+            match inbox.recv_timeout(wait) {
                 // The caller may have gone away; nothing to do if so.
                 Ok(Job::ReadAll(reply)) => {
                     let _ = reply.send(self.with_device(session::read_settings));
                 }
                 Ok(Job::Apply(request, reply)) => self.apply(request, reply, &inbox),
-                Err(RecvTimeoutError::Timeout) => self.refresh(),
+                Ok(Job::DeviceChanged) => self.schedule.device_changed(Instant::now()),
+                Err(RecvTimeoutError::Timeout) => self.on_timer(),
                 Err(RecvTimeoutError::Disconnected) => break,
             }
         }
         log::info!("keyboard worker stopped");
     }
 
-    /// Notices plugs and unplugs, connects to the keyboard when it appears, and watches for MagCrate.
+    fn on_timer(&mut self) {
+        if self.schedule.look_due(Instant::now()) {
+            self.refresh();
+        }
+        if self.device.is_some() && self.schedule.magcrate_due(Instant::now()) {
+            self.check_conflicts();
+        }
+    }
+
+    /// Notices plugs and unplugs, and connects to the keyboard when it appears (checking for MagCrate as it does).
     fn refresh(&mut self) {
-        let found = match self.find_keyboard() {
+        let found = self.find_keyboard();
+        let found = match found {
             Ok(path) => path,
             Err(err) => {
+                self.schedule.looked(Instant::now(), None);
                 self.set_status(KeyboardStatus::Error { message: err.to_string() });
                 return;
             }
@@ -239,11 +325,7 @@ impl Worker {
         let skipped = self.skips.update(found.as_deref(), Instant::now());
         let open = self.device.as_ref().map(|d| d.path.as_c_str());
         match next_step(open, found.as_deref(), skipped) {
-            Step::Stay => {
-                if self.device.is_some() && self.polls.is_multiple_of(CONFLICT_CHECK_EVERY) {
-                    self.check_conflicts();
-                }
-            }
+            Step::Stay => {}
             Step::Connect => {
                 self.check_conflicts();
                 self.connect(found.expect("Connect means a device was found"));
@@ -256,11 +338,13 @@ impl Worker {
             Step::Disconnect => self.disconnect(),
             Step::ReportMissing => self.set_status(KeyboardStatus::Disconnected),
         }
-        self.polls = self.polls.wrapping_add(1);
+        let now = Instant::now();
+        self.schedule.looked(now, self.skips.retry_at(now));
     }
 
     fn check_conflicts(&mut self) {
         let state = conflicts::magcrate_state();
+        self.schedule.magcrate_checked(Instant::now());
         if state == self.magcrate {
             return;
         }
@@ -355,6 +439,7 @@ impl Worker {
                     replies.push(newer_reply);
                 }
                 Job::ReadAll(read_reply) => reads.push(read_reply),
+                Job::DeviceChanged => self.schedule.device_changed(Instant::now()),
             }
         }
         if replies.len() > 1 {
@@ -383,6 +468,8 @@ impl Worker {
         if let Err(KeyboardError::Hid(message)) = &result {
             log::warn!("USB error, dropping connection: {message}");
             self.disconnect();
+            // Windows won't announce anything if the keyboard is still plugged in, so look again soon.
+            self.schedule.device_changed(Instant::now());
         }
         result
     }
@@ -413,6 +500,9 @@ mod tests {
         assert_eq!(json, serde_json::json!({ "state": "unsupported", "deviceId": 7 }));
         let json = serde_json::to_value(KeyboardStatus::Disconnected).unwrap();
         assert_eq!(json, serde_json::json!({ "state": "disconnected" }));
+        let info = DeviceInfo { device_id: 2494, firmware_version: 0x0321, model: Some("MX 8.2 Pro TMR") };
+        let json = serde_json::to_value(KeyboardStatus::Connected { info, magcrate: MagCrateState::Closed }).unwrap();
+        assert_eq!(json["state"], "connected");
     }
 
     fn path(s: &str) -> CString {
@@ -504,6 +594,56 @@ mod tests {
         skips.record_failure(a.clone(), now);
         skips.clear_failures();
         assert_eq!(skips.update(Some(&a), now), None);
+    }
+
+    #[test]
+    fn with_device_announcements_the_worker_mostly_waits() {
+        let now = Instant::now();
+        let mut schedule = Schedule::new(true, now);
+        schedule.looked(now, None);
+        assert_eq!(schedule.wait(now, false), BACKSTOP_INTERVAL);
+        assert_eq!(schedule.wait(now, true), MAGCRATE_CHECK_INTERVAL, "MagCrate is checked while connected");
+    }
+
+    #[test]
+    fn without_device_announcements_the_worker_looks_every_second() {
+        let now = Instant::now();
+        let mut schedule = Schedule::new(false, now);
+        schedule.looked(now, None);
+        assert_eq!(schedule.wait(now, false), POLL_INTERVAL);
+    }
+
+    #[test]
+    fn a_device_change_brings_the_next_look_forward_once() {
+        let now = Instant::now();
+        let mut schedule = Schedule::new(true, now);
+        schedule.looked(now, None);
+        schedule.device_changed(now);
+        assert_eq!(schedule.wait(now, false), SETTLE_DELAY);
+        // More changes in the same burst don't keep pushing the look back.
+        schedule.device_changed(now + Duration::from_millis(200));
+        assert_eq!(schedule.wait(now, false), SETTLE_DELAY);
+        assert!(schedule.look_due(now + SETTLE_DELAY));
+    }
+
+    #[test]
+    fn a_cooling_device_is_tried_again_when_due() {
+        let now = Instant::now();
+        let mut schedule = Schedule::new(true, now);
+        schedule.looked(now, Some(now + Duration::from_secs(5)));
+        assert_eq!(schedule.wait(now, false), Duration::from_secs(5));
+        // A retry further off than the backstop doesn't delay the regular look.
+        schedule.looked(now, Some(now + Duration::from_secs(90)));
+        assert_eq!(schedule.wait(now, false), BACKSTOP_INTERVAL);
+    }
+
+    #[test]
+    fn only_a_future_retry_counts() {
+        let now = Instant::now();
+        let mut skips = Skips::default();
+        skips.record_failure(path("kb"), now);
+        assert_eq!(skips.retry_at(now), Some(now + Duration::from_secs(2)));
+        assert_eq!(skips.retry_at(now + Duration::from_secs(3)), None);
     }
 
     #[test]

@@ -69,15 +69,14 @@ The two features I use, starting with the harmless one.
 
 ## Phase 6: Tray and background
 
-- [ ] Tray icon with quick profile switching
-- [ ] Start with Windows (optional, off by default)
-- [ ] Single instance: opening Keystra a second time focuses the running app instead of starting another copy (`tauri-plugin-single-instance`)
-- [ ] Closing the window minimizes to the tray
-- [ ] Notice plugging and unplugging from Windows device events instead of checking every second, since Keystra now runs all day
+- [x] Tray icon with quick profile switching
+- [x] Start with Windows (optional, off by default)
+- [x] Single instance: opening Keystra a second time focuses the running app instead of starting another copy (`tauri-plugin-single-instance`)
+- [x] Closing the window minimizes to the tray
+- [x] Notice plugging and unplugging from Windows device events instead of checking every second, since Keystra now runs all day
+- [x] README status line and CHANGELOG reread
 
-- [ ] README status line and CHANGELOG reread
-
-**Checkpoint:** profile switching works from the tray with the window closed.
+**Checkpoint (passed 2026-11-15):** profile switching works from the tray with the window closed.
 
 ## Phase 7: Auto-switch per game
 

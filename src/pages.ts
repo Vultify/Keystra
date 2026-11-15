@@ -1,6 +1,6 @@
-import { ActivityIcon, GaugeIcon, LayersIcon, SunIcon, type LucideIcon } from "lucide-react";
+import { ActivityIcon, GaugeIcon, LayersIcon, SettingsIcon, SunIcon, type LucideIcon } from "lucide-react";
 
-export type PageId = "lighting" | "performance" | "profiles" | "diagnostics";
+export type PageId = "lighting" | "performance" | "profiles" | "settings" | "diagnostics";
 
 export type PageInfo = {
   id: PageId;
@@ -28,6 +28,12 @@ export const PAGES: PageInfo[] = [
     title: "Profiles",
     description: "Save setups and switch between them.",
     icon: LayersIcon,
+  },
+  {
+    id: "settings",
+    title: "Settings",
+    description: "Choose how Keystra starts and runs.",
+    icon: SettingsIcon,
   },
   {
     id: "diagnostics",

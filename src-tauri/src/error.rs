@@ -3,13 +3,15 @@ use serde::{Serialize, Serializer};
 use crate::keyboard::KeyboardError;
 use crate::profiles::ProfileError;
 
-/// Work that touches both the keyboard and the profiles can fail on either side.
+/// Errors from commands, which can fail on the keyboard, the profiles or the Windows startup setting.
 #[derive(Debug, thiserror::Error)]
 pub enum CommandError {
     #[error(transparent)]
     Keyboard(#[from] KeyboardError),
     #[error(transparent)]
     Profile(#[from] ProfileError),
+    #[error("couldn't change the Windows startup setting: {0}")]
+    Startup(#[from] auto_launch::Error),
 }
 
 // Commands return errors to the screens as plain messages.

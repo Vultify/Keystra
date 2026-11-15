@@ -26,6 +26,10 @@ export function useActiveProfile(list: ProfileList | null): ActiveProfile {
   const [draft, setDraft] = useState<Profile | null>(stored);
   const [pending, setPending] = useState(0);
   const [problem, setProblem] = useState<string | null>(null);
+  // Kept apart from other problems: it clears itself once the profile reaches the keyboard, from
+  // a retry here, in Profiles or in the tray, or when the keyboard is plugged back in.
+  const [keyboardProblem, setKeyboardProblem] = useState<string | null>(null);
+  const unsent = stored !== null && list?.unsentId === stored.id;
   // Only the newest change may report a problem; older ones may have been merged into it.
   const newest = useRef(0);
   const dragging = useRef(false);
@@ -34,10 +38,11 @@ export function useActiveProfile(list: ProfileList | null): ActiveProfile {
   const save = useCallback((next: Profile) => {
     const number = ++newest.current;
     setProblem(null);
+    setKeyboardProblem(null);
     setPending((count) => count + 1);
     saveProfile(next)
       .then(({ applyError }) => {
-        if (number === newest.current && applyError) setProblem(`Saved, but the keyboard didn't take it: ${applyError}`);
+        if (number === newest.current && applyError) setKeyboardProblem(`Saved, but the keyboard didn't take it: ${applyError}`);
       })
       .catch((err) => {
         if (number === newest.current) setProblem(errorText(err));
@@ -55,7 +60,7 @@ export function useActiveProfile(list: ProfileList | null): ActiveProfile {
     save(held.next);
   }, [save]);
 
-  // A different profile became active (from Profiles, or later the tray or auto-switch): start
+  // A different profile became active (from Profiles or the tray, or later auto-switch): start
   // fresh on it, and let no old result show up under its name.
   const storedId = stored?.id ?? null;
   useEffect(() => {
@@ -63,8 +68,13 @@ export function useActiveProfile(list: ProfileList | null): ActiveProfile {
     dragging.current = false;
     newest.current++;
     setProblem(null);
+    setKeyboardProblem(null);
     setDraft(storedKey ? (JSON.parse(storedKey) as Profile) : null);
   }, [storedId, flush]);
+
+  useEffect(() => {
+    if (!unsent) setKeyboardProblem(null);
+  }, [unsent]);
 
   // Follow the saved profile, unless one of our own changes is still being made or saved.
   useEffect(() => {
@@ -101,5 +111,5 @@ export function useActiveProfile(list: ProfileList | null): ActiveProfile {
     setDraft(next);
   }, []);
 
-  return { profile: draft, preview, commit, commitLater, saving: pending > 0, problem };
+  return { profile: draft, preview, commit, commitLater, saving: pending > 0, problem: problem ?? keyboardProblem };
 }

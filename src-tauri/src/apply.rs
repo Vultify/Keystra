@@ -54,7 +54,7 @@ pub fn save_profile(app: &AppHandle, profile: Profile) -> Result<SaveOutcome, Pr
     let profiles = app.state::<ProfilesState>();
     let saved = profiles.change(app, |store| store.update(profile))?;
     let in_use = profiles.list().active_id == Some(saved.id);
-    if !in_use || !app.state::<KeyboardHandle>().is_connected() {
+    if !in_use || !keyboard_connected(app) {
         return Ok(SaveOutcome { profile: saved, apply_error: None });
     }
     let switches = SWITCHES.load(Ordering::SeqCst);
@@ -67,14 +67,18 @@ pub fn save_profile(app: &AppHandle, profile: Profile) -> Result<SaveOutcome, Pr
     Ok(SaveOutcome { profile: saved, apply_error: sent.err().map(|err| err.to_string()) })
 }
 
+/// Whether the keyboard is connected right now. False until the keyboard worker has started.
+pub fn keyboard_connected(app: &AppHandle) -> bool {
+    app.try_state::<KeyboardHandle>().is_some_and(|keyboard| keyboard.is_connected())
+}
+
 /// Re-sends the profile in use each time the keyboard connects, so changes made while it was
 /// unplugged arrive. Only settings that differ are written.
 pub fn follow_connections(app: &AppHandle) {
     let handle = app.clone();
     let was_connected = Arc::new(AtomicBool::new(false));
-    app.listen(STATUS_EVENT, move |event| {
-        let connected = serde_json::from_str::<serde_json::Value>(event.payload())
-            .is_ok_and(|status| status["state"] == "connected");
+    app.listen(STATUS_EVENT, move |_| {
+        let connected = keyboard_connected(&handle);
         if connected && !was_connected.swap(true, Ordering::SeqCst) {
             // Status events arrive on the keyboard worker's own thread, which must stay free to do the work.
             let handle = handle.clone();
@@ -87,16 +91,6 @@ pub fn follow_connections(app: &AppHandle) {
 
 /// Sends the profile in use, if there is one and the profiles can be used.
 fn resend_active(app: &AppHandle) {
-    // At startup the worker can report a connection a moment before the app has registered it.
-    let registered = (0..40).any(|_| {
-        app.try_state::<KeyboardHandle>().is_some() || {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            false
-        }
-    });
-    if !registered {
-        return;
-    }
     let profiles = app.state::<ProfilesState>();
     let Some(id) = profiles.list().active_id else { return };
     let result = profiles.get_for_apply(id).map_err(CommandError::from).and_then(|profile| send(app, &profile));
@@ -111,12 +105,14 @@ fn send(app: &AppHandle, profile: &Profile) -> Result<Option<Snapshot>, CommandE
     let keyboard = app.state::<KeyboardHandle>();
     match keyboard.apply(ApplyRequest::from(profile)) {
         Ok(snapshot) => {
+            app.state::<ProfilesState>().set_unsent(app, None);
             announce(app, &snapshot);
             Ok(Some(snapshot))
         }
         // The newer change's caller announces what the keyboard ends up holding.
         Err(KeyboardError::Superseded) => Ok(None),
         Err(err) => {
+            app.state::<ProfilesState>().set_unsent(app, Some(profile.id));
             if let Ok(snapshot) = keyboard.read_all() {
                 announce(app, &snapshot);
             }

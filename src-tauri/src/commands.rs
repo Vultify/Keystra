@@ -7,6 +7,7 @@ use crate::apply::{self, SaveOutcome};
 use crate::error::CommandError;
 use crate::keyboard::{KeyboardError, KeyboardHandle, KeyboardStatus, Snapshot};
 use crate::profiles::{Profile, ProfileError, ProfileList, ProfilesState};
+use crate::startup;
 
 #[tauri::command]
 pub fn keyboard_status(keyboard: State<'_, KeyboardHandle>) -> KeyboardStatus {
@@ -41,9 +42,8 @@ pub async fn create_profile(
     app: AppHandle,
     profiles: State<'_, ProfilesState>,
     name: String,
-    copy_from: Option<u32>,
 ) -> Result<Profile, ProfileError> {
-    profiles.change(&app, |store| store.create(&name, copy_from))
+    profiles.change(&app, |store| store.create(&name, None))
 }
 
 /// Reads the keyboard first and only then adds the profile, so a failed read creates nothing.
@@ -111,4 +111,16 @@ where
     tauri::async_runtime::spawn_blocking(job)
         .await
         .map_err(|_| E::from(KeyboardError::WorkerStopped))?
+}
+
+/// Whether Windows starts Keystra (in the tray) when you sign in.
+#[tauri::command]
+pub fn start_with_windows() -> Result<bool, CommandError> {
+    Ok(startup::is_enabled()?)
+}
+
+/// Turns starting with Windows on or off, then reports what Windows now has.
+#[tauri::command]
+pub fn set_start_with_windows(enabled: bool) -> Result<bool, CommandError> {
+    Ok(startup::set_enabled(enabled)?)
 }

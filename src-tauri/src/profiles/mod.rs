@@ -17,7 +17,7 @@ pub use store::{FILE_NAME, ProfileStore};
 /// Event the screens listen to for profile changes; the payload is a [`ProfileList`].
 pub const PROFILES_EVENT: &str = "profiles-changed";
 
-/// The one profile store, shared by the commands (and later the tray and game watcher).
+/// The one profile store, shared by the commands, the tray and the apply path.
 pub struct ProfilesState(Mutex<ProfileStore>);
 
 impl ProfilesState {
@@ -35,6 +35,19 @@ impl ProfilesState {
         let store = self.lock();
         store.check_writable()?;
         store.get(id).cloned()
+    }
+
+    /// Records whether the profile just sent reached the keyboard, announcing the list when that changes.
+    pub fn set_unsent(&self, app: &AppHandle, id: Option<u32>) {
+        let changed = {
+            let mut store = self.lock();
+            store.set_unsent(id).then(|| store.list())
+        };
+        if let Some(list) = changed
+            && let Err(err) = app.emit(PROFILES_EVENT, list)
+        {
+            log::warn!("could not send profiles to the window: {err}");
+        }
     }
 
     /// The only way to change profiles: runs `edit` on the store, then, if anything changed,

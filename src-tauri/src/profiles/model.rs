@@ -49,6 +49,9 @@ pub struct ProfileList {
     pub active_id: Option<u32>,
     /// Why changes are switched off, when the saved file couldn't be used. That file is left as it was.
     pub read_only: Option<String>,
+    /// The profile whose last send to the keyboard failed, so the screens and the tray can offer to
+    /// try again. Cleared by the next send that works. Never saved.
+    pub unsent_id: Option<u32>,
 }
 
 impl Profile {

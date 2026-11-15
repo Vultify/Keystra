@@ -12,16 +12,18 @@ import { FirstRunScreen } from "@/screens/first-run-screen";
 import { LightingScreen } from "@/screens/lighting-screen";
 import { PerformanceScreen } from "@/screens/performance-screen";
 import { ProfilesScreen } from "@/screens/profiles-screen";
+import { SettingsScreen } from "@/screens/settings-screen";
 
 // App layout: sidebar on the left, the selected page on the right. Until a profile is in use, the
-// first-run screen takes the page's place.
+// first-run screen takes the place of the pages that edit profiles.
 export default function App() {
   const [activePage, setActivePage] = useState<PageId>("lighting");
   const status = useKeyboardStatus();
   const settings = useKeyboardSettings(status);
   const list = useProfiles();
   const page = PAGES.find((p) => p.id === activePage) ?? PAGES[0];
-  const firstRun = list !== null && list.activeId === null && list.readOnly === null && page.id !== "diagnostics";
+  const editsProfiles = page.id !== "settings" && page.id !== "diagnostics";
+  const firstRun = list !== null && list.activeId === null && list.readOnly === null && editsProfiles;
   const activeProfile = list?.profiles.find((profile) => profile.id === list.activeId) ?? null;
 
   return (
@@ -41,6 +43,7 @@ export default function App() {
                 {page.id === "lighting" && <LightingScreen status={status} list={list} />}
                 {page.id === "performance" && <PerformanceScreen status={status} list={list} />}
                 {page.id === "profiles" && <ProfilesScreen status={status} list={list} />}
+                {page.id === "settings" && <SettingsScreen />}
                 {page.id === "diagnostics" && <DiagnosticsScreen status={status} settings={settings} list={list} />}
               </>
             )}

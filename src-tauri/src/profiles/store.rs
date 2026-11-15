@@ -29,6 +29,8 @@ pub struct ProfileStore {
     read_only: Option<String>,
     /// Goes up with every save, so callers can tell whether a change actually changed anything.
     revision: u64,
+    /// The profile whose last send to the keyboard failed. Kept in memory only.
+    unsent: Option<u32>,
 }
 
 impl ProfileStore {
@@ -36,7 +38,7 @@ impl ProfileStore {
     /// as JSON is backed up and replaced; any other problem opens the store read-only.
     pub fn open(path: PathBuf) -> Self {
         match read_file(&path) {
-            Ok(Some(file)) => Self { path, file, read_only: None, revision: 0 },
+            Ok(Some(file)) => Self { path, file, read_only: None, revision: 0, unsent: None },
             Ok(None) => {
                 log::info!("no profiles yet, creating {FILE_NAME}");
                 Self::start_fresh(path)
@@ -56,7 +58,7 @@ impl ProfileStore {
     }
 
     fn start_fresh(path: PathBuf) -> Self {
-        let store = Self { path, file: ProfileFile::fresh(), read_only: None, revision: 0 };
+        let store = Self { path, file: ProfileFile::fresh(), read_only: None, revision: 0, unsent: None };
         if let Err(err) = write_file(&store.path, &store.file) {
             log::warn!("{err}");
         }
@@ -66,7 +68,7 @@ impl ProfileStore {
     /// Shows a placeholder Default profile and refuses every change, leaving the saved file alone.
     fn read_only(path: PathBuf, reason: String) -> Self {
         log::warn!("opening profiles read-only: {reason}");
-        Self { path, file: ProfileFile::fresh(), read_only: Some(reason), revision: 0 }
+        Self { path, file: ProfileFile::fresh(), read_only: Some(reason), revision: 0, unsent: None }
     }
 
     #[cfg(test)]
@@ -79,7 +81,16 @@ impl ProfileStore {
             profiles: self.file.profiles.clone(),
             active_id: self.file.active_id,
             read_only: self.read_only.clone(),
+            unsent_id: self.unsent,
         }
+    }
+
+    /// Records which profile didn't reach the keyboard, or `None` once one did. Returns whether
+    /// that changed. Nothing is written to disk.
+    pub fn set_unsent(&mut self, id: Option<u32>) -> bool {
+        let changed = self.unsent != id;
+        self.unsent = id;
+        changed
     }
 
     pub fn revision(&self) -> u64 {

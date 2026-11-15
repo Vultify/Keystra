@@ -18,8 +18,8 @@ export function listProfiles(): Promise<ProfileList> {
   return invoke<ProfileList>("list_profiles");
 }
 
-export function createProfile(name: string, copyFrom?: number): Promise<Profile> {
-  return invoke<Profile>("create_profile", { name, copyFrom: copyFrom ?? null });
+export function createProfile(name: string): Promise<Profile> {
+  return invoke<Profile>("create_profile", { name });
 }
 
 /**

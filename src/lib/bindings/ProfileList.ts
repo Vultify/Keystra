@@ -12,4 +12,9 @@ activeId: number | null,
 /**
  * Why changes are switched off, when the saved file couldn't be used. That file is left as it was.
  */
-readOnly: string | null, };
+readOnly: string | null, 
+/**
+ * The profile whose last send to the keyboard failed, so the screens and the tray can offer to
+ * try again. Cleared by the next send that works. Never saved.
+ */
+unsentId: number | null, };

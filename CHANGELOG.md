@@ -38,3 +38,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Duplicated and new profiles get a free name that always fits, like "Gaming copy 2".
 - Quick changes in a row no longer show a false error, and a slider no longer jumps back while you drag it.
 - Pages still show their settings when profiles are read-only, with a note saying why.
+- Tray icon: right-click to switch profiles or quit, click to open the window. Its tooltip shows the profile in use. Profiles stay locked in the tray until first-run setup is done, so a tray click can't replace the keyboard's settings before they're saved.
+- When the profile in use didn't reach the keyboard, the tray and the Profiles page both offer to send it again.
+- Closing the window keeps Keystra running in the tray, and the hidden window stops drawing so it uses almost no power.
+- Opening Keystra while it's already running brings the running window to the front instead of starting a second copy.
+- Settings page with an option to start Keystra with Windows, off by default. It starts in the tray, and only your own Windows account is changed.
+- Keystra notices the keyboard being plugged in or pulled out the moment Windows does, instead of checking every second. After a USB error it looks for the keyboard again right away.

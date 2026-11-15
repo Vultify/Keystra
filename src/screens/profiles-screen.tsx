@@ -165,18 +165,11 @@ export function ProfilesScreen({ status, list }: { status: KeyboardStatus | null
   const { busy, error, run } = useAction("profile action");
   const [editing, setEditing] = useState<Editing | null>(null);
   const [deleting, setDeleting] = useState<Profile | null>(null);
-  // A switch marks the profile in use even when the keyboard write fails, so that row offers a retry.
-  const [failedSwitch, setFailedSwitch] = useState<number | null>(null);
   const connected = status?.state === "connected";
   const readOnly = list?.readOnly ?? null;
   const locked = busy !== null || readOnly !== null;
 
   if (!list) return null;
-
-  const switchTo = async (id: number) => {
-    const worked = await run(`switch-${id}`, () => applyProfile(id));
-    setFailedSwitch(worked ? null : id);
-  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -198,7 +191,8 @@ export function ProfilesScreen({ status, list }: { status: KeyboardStatus | null
         <CardContent className="flex flex-col gap-2">
           {list.profiles.map((profile) => {
             const active = profile.id === list.activeId;
-            const retry = active && failedSwitch === profile.id;
+            // A profile in use that didn't reach the keyboard, from here or the tray, can be sent again.
+            const retry = active && list.unsentId === profile.id;
             return (
               <div
                 key={profile.id}
@@ -216,7 +210,7 @@ export function ProfilesScreen({ status, list }: { status: KeyboardStatus | null
                   variant={active && !retry ? "outline" : "default"}
                   size="sm"
                   disabled={(active && !retry) || !connected || locked}
-                  onClick={() => switchTo(profile.id)}
+                  onClick={() => run(`switch-${profile.id}`, () => applyProfile(profile.id))}
                 >
                   {busy === `switch-${profile.id}` ? (
                     <Spinner data-icon="inline-start" />
