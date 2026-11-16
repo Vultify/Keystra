@@ -69,7 +69,7 @@ pub enum KeyboardStatus {
     /// A development build is leaving the keyboard to the installed Keystra, which is running.
     InstalledRunning,
     /// The keyboard kept failing over USB; Keystra tries again after `seconds`.
-    Retrying { seconds: u64 },
+    Retrying { seconds: u32 },
 }
 
 enum Job {
@@ -608,7 +608,7 @@ impl Worker {
             match self.skips.record_drop(path, Instant::now()) {
                 Some(delay) => {
                     log::warn!("the keyboard keeps failing, waiting {}s before trying again", delay.as_secs());
-                    self.set_status(KeyboardStatus::Retrying { seconds: delay.as_secs() });
+                    self.set_status(KeyboardStatus::Retrying { seconds: u32::try_from(delay.as_secs()).unwrap_or(u32::MAX) });
                 }
                 None => self.set_status(KeyboardStatus::Disconnected),
             }

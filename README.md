@@ -12,7 +12,15 @@ I built Keystra because the official software is confusing to use, has no easy w
 
 ## Status
 
-Nearly ready for 1.0: the features planned for the first release are built, and the release itself is next. Keystra finds the keyboard over USB and has its real screens: Lighting (every built-in effect, with a picture of the keyboard playing a looping example of it, and a painter for the 5 custom per-key color patterns), Performance (polling rate) and Profiles (create, rename, duplicate, delete and switch). Profiles are saved on this PC and sent to the keyboard on every switch and whenever it's plugged back in. Keystra lives in the tray: switch profiles from its menu with the window closed, and optionally start it with Windows. See [ROADMAP.md](ROADMAP.md) for the build order.
+Version 1.0.0. Keystra finds the keyboard over USB and has its real screens: Lighting (every built-in effect, with a picture of the keyboard playing a looping example of it, and a painter for the 5 custom per-key color patterns), Performance (polling rate) and Profiles (create, rename, duplicate, delete and switch). Profiles are saved on this PC and sent to the keyboard on every switch and whenever it's plugged back in. Keystra lives in the tray: switch profiles from its menu with the window closed, and optionally start it with Windows. See [ROADMAP.md](ROADMAP.md) for the build order.
+
+## Install
+
+1. Download `Keystra_1.0.0_x64-setup.exe` from the [Releases page](https://github.com/Vultify/Keystra/releases).
+2. Run it. Windows may show "Windows protected your PC", because the installer isn't code-signed. Click **More info**, then **Run anyway**.
+3. Plug in your MX 8.2 Pro TMR with the USB cable and open Keystra. Wireless isn't supported yet.
+
+Keystra installs for your Windows account only and needs no administrator rights. It runs on Windows 10 and 11. Close MagCrate while you use Keystra, since the two share the keyboard's connection.
 
 ## Planned features
 

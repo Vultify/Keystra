@@ -1,6 +1,6 @@
 [package]
 name = "keystra"
-version = "0.1.0"
+version = "1.0.0"
 description = "A clean settings app for the Cherry Xtrfy MX 8.2 Pro TMR keyboard"
 authors = ["Vultify <233528661+Vultify@users.noreply.github.com>"]
 license = "MIT"

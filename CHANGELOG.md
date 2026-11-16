@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-16
+
+The first release.
+
 ### Added
 
 - Tauri desktop app with a React and TypeScript interface.
@@ -50,3 +54,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Keys on the picture can be picked with the keyboard: Tab onto the picture, move with the arrow keys, and press Space or Enter.
 - Starting Keystra with Windows doesn't load the window until you open it from the tray.
 - A German MX 8.2 works fully; the Lighting page notes that the picture shows the US layout for now.
+
+[Unreleased]: https://github.com/Vultify/Keystra/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Vultify/Keystra/releases/tag/v1.0.0
