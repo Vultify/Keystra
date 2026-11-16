@@ -48,3 +48,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A copy of all 5 patterns is kept on this PC, read once when the keyboard connects. If a pattern changed elsewhere, Keystra offers to put its copy back or keep the keyboard's version.
 - The keyboard picture plays a looping example of each effect (sweeps, rings, key presses, twinkles, falling light), following its color, speed and direction. It pauses while the window is minimized.
 - A German MX 8.2 works fully; the Lighting page notes that the picture shows the US layout for now.
+
+### Changed
+
+- The Lighting page's effects are now tiles, each with a small keyboard that plays the effect when you hover it. The chosen effect glows.
+- The Adjust panel stays beside the effects while you scroll. Brightness and speed are 5 clickable steps, color is a Solid or Rainbow choice with round swatches and a pick-any-color button, and directions use arrow icons.
