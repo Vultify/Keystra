@@ -3,6 +3,7 @@
 
 use serde::Serialize;
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::System::Threading::OpenMutexW;
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
@@ -43,27 +44,26 @@ pub fn magcrate_state() -> MagCrateState {
     state
 }
 
-/// Whether another Keystra process is running, like the installed app while a development build
-/// is open. Two copies driving one keyboard would undo each other's settings.
-pub fn other_keystra_running() -> bool {
-    let Some(snapshot) = Snapshot::take() else {
-        return false;
-    };
-    let mut entry = PROCESSENTRY32W {
-        dwSize: size_of::<PROCESSENTRY32W>() as u32,
-        ..Default::default()
-    };
-    let own = std::process::id();
-    // SAFETY: the snapshot handle is valid until dropped, and `entry` is a correctly sized struct.
-    let mut more = unsafe { Process32FirstW(snapshot.0, &mut entry) } != 0;
-    while more {
-        if entry.th32ProcessID != own && exe_name(&entry.szExeFile).eq_ignore_ascii_case("keystra.exe") {
-            return true;
+/// The release app's identifier, which names its single-instance lock. Must match
+/// `tauri.release.conf.json` (a test checks).
+const RELEASE_IDENTIFIER: &str = "com.vultify.keystra";
+
+/// The standard right to wait on an object, the least access that proves a lock exists.
+const SYNCHRONIZE: u32 = 0x0010_0000;
+
+/// Whether the installed (release) Keystra is running, found by the lock it holds to stay a single
+/// copy. Development builds hold a differently named lock, so they never find each other.
+pub fn installed_keystra_running() -> bool {
+    let name: Vec<u16> = format!("{RELEASE_IDENTIFIER}-sim").encode_utf16().chain(Some(0)).collect();
+    // SAFETY: the name is null-terminated; a returned handle is closed right away.
+    unsafe {
+        let handle = OpenMutexW(SYNCHRONIZE, 0, name.as_ptr());
+        if handle.is_null() {
+            return false;
         }
-        // SAFETY: same as above.
-        more = unsafe { Process32NextW(snapshot.0, &mut entry) } != 0;
+        CloseHandle(handle);
     }
-    false
+    true
 }
 
 /// A Windows process snapshot handle, closed when dropped.
@@ -104,6 +104,12 @@ fn classify(process_name: &str) -> MagCrateState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn looks_for_the_release_app_lock() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../../tauri.release.conf.json")).unwrap();
+        assert_eq!(config["identifier"], RELEASE_IDENTIFIER);
+    }
 
     #[test]
     fn tells_magcrate_apart_from_its_helper() {

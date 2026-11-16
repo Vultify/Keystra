@@ -2,4 +2,4 @@
 import type { DeviceInfo } from "./DeviceInfo";
 import type { MagCrateState } from "./MagCrateState";
 
-export type KeyboardStatus = { "state": "disconnected" } | { "state": "connected", info: DeviceInfo, magcrate: MagCrateState, } | { "state": "unsupported", deviceId: number, } | { "state": "error", message: string, };
+export type KeyboardStatus = { "state": "disconnected" } | { "state": "connected", info: DeviceInfo, magcrate: MagCrateState, } | { "state": "unsupported", deviceId: number, } | { "state": "error", message: string, } | { "state": "installedRunning" } | { "state": "retrying", seconds: bigint, };

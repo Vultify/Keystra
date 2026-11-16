@@ -48,8 +48,8 @@ const DROP_MEMORY: Duration = Duration::from_secs(60);
 /// changes can never become a stream of writes. Applies that arrive meanwhile are merged into one.
 const MIN_WRITE_GAP: Duration = Duration::from_millis(500);
 
-/// Shown by a development build while the installed Keystra has the keyboard.
-const INSTALLED_RUNNING: &str = "the installed Keystra is running and has the keyboard; quit it from its tray icon to test this build";
+/// How often a development build checks whether the installed Keystra has quit.
+const YIELD_RECHECK: Duration = Duration::from_secs(3);
 
 /// Shown when the keyboard is there but its replies keep getting mixed up.
 const BUSY_MESSAGE: &str = "the keyboard is busy, another app may be using it";
@@ -66,6 +66,10 @@ pub enum KeyboardStatus {
     Connected { info: DeviceInfo, magcrate: MagCrateState },
     Unsupported { device_id: u32 },
     Error { message: String },
+    /// A development build is leaving the keyboard to the installed Keystra, which is running.
+    InstalledRunning,
+    /// The keyboard kept failing over USB; Keystra tries again after `seconds`.
+    Retrying { seconds: u64 },
 }
 
 enum Job {
@@ -147,6 +151,7 @@ impl KeyboardHandle {
             schedule: Schedule::new(watch.is_some(), Instant::now()),
             _watch: watch,
             gap: WriteGap::default(),
+            yielded: false,
         };
         app.manage(Self { jobs, status });
         thread::Builder::new()
@@ -363,6 +368,8 @@ struct Worker {
     /// Keeps Windows' device announcements coming for as long as the worker runs.
     _watch: Option<DeviceWatch>,
     gap: WriteGap,
+    /// Set while a development build leaves the keyboard to the installed Keystra.
+    yielded: bool,
 }
 
 impl Worker {
@@ -449,7 +456,7 @@ impl Worker {
                 }
             }
             Step::Reconnect => {
-                self.disconnect();
+                self.release_device();
                 self.check_conflicts();
                 if !self.yields_to_installed() {
                     self.connect(found.expect("Reconnect means a device was found"));
@@ -459,18 +466,22 @@ impl Worker {
             Step::ReportMissing => self.set_status(KeyboardStatus::Disconnected),
         }
         let now = Instant::now();
-        self.schedule.looked(now, self.skips.retry_at(now));
+        let retry_at = if self.yielded { Some(now + YIELD_RECHECK) } else { self.skips.retry_at(now) };
+        self.schedule.looked(now, retry_at);
     }
 
     /// A development build leaves the keyboard to an installed Keystra that's running, so the two
     /// never fight over it. Release builds always connect.
     fn yields_to_installed(&mut self) -> bool {
-        if !cfg!(debug_assertions) || !conflicts::other_keystra_running() {
-            return false;
+        self.yielded = cfg!(debug_assertions) && conflicts::installed_keystra_running();
+        if self.yielded {
+            self.release_device();
+            self.set_status(KeyboardStatus::InstalledRunning);
+            // Check again soon, so the keyboard comes back quickly once the installed app quits.
+            let now = Instant::now();
+            self.schedule.looked(now, Some(now + YIELD_RECHECK));
         }
-        self.disconnect();
-        self.set_status(KeyboardStatus::Error { message: INSTALLED_RUNNING.to_string() });
-        true
+        self.yielded
     }
 
     fn check_conflicts(&mut self) {
@@ -549,10 +560,15 @@ impl Worker {
         Ok((transport, info))
     }
 
-    fn disconnect(&mut self) {
+    /// Lets go of the keyboard without announcing a status; the caller sets the one that fits.
+    fn release_device(&mut self) {
         if self.device.take().is_some() {
             log::info!("keyboard disconnected");
         }
+    }
+
+    fn disconnect(&mut self) {
+        self.release_device();
         self.set_status(KeyboardStatus::Disconnected);
     }
 
@@ -588,11 +604,13 @@ impl Worker {
         if let Err(KeyboardError::Hid(message)) = &result {
             log::warn!("USB error, dropping connection: {message}");
             let path = device.path.clone();
-            self.disconnect();
-            if let Some(delay) = self.skips.record_drop(path, Instant::now()) {
-                log::warn!("the keyboard keeps failing, waiting {}s before trying again", delay.as_secs());
-                let message = format!("the keyboard stopped answering over USB; trying again in {}s", delay.as_secs());
-                self.set_status(KeyboardStatus::Error { message });
+            self.release_device();
+            match self.skips.record_drop(path, Instant::now()) {
+                Some(delay) => {
+                    log::warn!("the keyboard keeps failing, waiting {}s before trying again", delay.as_secs());
+                    self.set_status(KeyboardStatus::Retrying { seconds: delay.as_secs() });
+                }
+                None => self.set_status(KeyboardStatus::Disconnected),
             }
             // Windows won't announce anything if the keyboard is still plugged in, so look again
             // soon. That look plans the next one for when any cooldown ends.

@@ -1,4 +1,4 @@
-import { InfoIcon, TriangleAlertIcon, UsbIcon } from "lucide-react";
+import { InfoIcon, MonitorIcon, RefreshCwIcon, TriangleAlertIcon, UsbIcon } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import type { KeyboardStatus } from "@/lib/keyboard";
@@ -24,6 +24,30 @@ export function KeyboardNotice({ status, showHelper = false }: { status: Keyboar
         <AlertTitle>This keyboard isn't supported</AlertTitle>
         <AlertDescription>
           A Cherry device answered with ID {status.deviceId}, which isn't the MX 8.2 Pro TMR, so Keystra leaves it alone.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+  if (status.state === "installedRunning") {
+    return (
+      <Alert>
+        <MonitorIcon />
+        <AlertTitle>The installed Keystra has the keyboard</AlertTitle>
+        <AlertDescription>
+          This development build leaves the keyboard alone while the installed Keystra runs, so the two don't undo
+          each other. Quit Keystra from its tray icon and this build takes over within a few seconds.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+  if (status.state === "retrying") {
+    return (
+      <Alert variant="destructive">
+        <RefreshCwIcon />
+        <AlertTitle>The keyboard stopped answering</AlertTitle>
+        <AlertDescription>
+          It failed over USB a few times in a row, so Keystra is waiting {status.seconds} seconds before trying again.
+          If it keeps happening, try another USB port or cable.
         </AlertDescription>
       </Alert>
     );

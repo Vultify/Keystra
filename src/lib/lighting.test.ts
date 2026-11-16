@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { LIGHTING_MODES } from "./bindings/constants";
 import { effectGuide } from "./effect-guide";
-import { carriedOption, describeLighting, optionAfterSwitch } from "./lighting";
+import { carriedOption, describeLighting } from "./lighting";
 
 const FLOWING_LIGHT = 4;
 const SPECTRUM_CYCLE = 3;
@@ -52,12 +52,5 @@ describe("option names the screens depend on", () => {
     for (const [id, mode] of Object.entries(LIGHTING_MODES)) {
       expect(mode.optionLabel === "Pattern", mode.name).toBe(effectGuide(Number(id)).preview === "pattern");
     }
-  });
-});
-
-describe("optionAfterSwitch", () => {
-  it("comes back to the option last used on an effect", () => {
-    expect(optionAfterSwitch(FLOWING_LIGHT, 0, CUSTOM, { [CUSTOM]: 2 })).toBe(2); // Pattern 3 again
-    expect(optionAfterSwitch(FLOWING_LIGHT, 1, NEON, {})).toBe(1); // nothing remembered: by name
   });
 });

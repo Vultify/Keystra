@@ -27,21 +27,6 @@ export function carriedOption(fromMode: number, fromOption: number, toMode: numb
   return Math.max(index, 0);
 }
 
-/**
- * The option an effect starts with when you switch to it: the one you last used on it this session
- * (so Custom comes back on the same pattern), otherwise `carriedOption`.
- */
-export function optionAfterSwitch(
-  fromMode: number,
-  fromOption: number,
-  toMode: number,
-  lastUsed: Readonly<Record<number, number>>,
-): number {
-  const remembered = lastUsed[toMode];
-  const count = LIGHTING_MODES[toMode]?.options.length ?? 0;
-  return remembered !== undefined && remembered < count ? remembered : carriedOption(fromMode, fromOption, toMode);
-}
-
 export type LightingDescription = {
   effect: string;
   /** "Rainbow", a "#RRGGBB" color, or `null` for effects that pick their own colors. */

@@ -17,6 +17,10 @@ function describe(status: KeyboardStatus | null): { label: string; variant: Badg
       return { label: "Unsupported device", variant: "destructive" };
     case "error":
       return { label: "Keyboard error", variant: "destructive" };
+    case "installedRunning":
+      return { label: "Used by installed Keystra", variant: "outline" };
+    case "retrying":
+      return { label: "Keyboard not answering", variant: "destructive" };
   }
 }
 

@@ -9,7 +9,7 @@ import { EFFECT_GROUPS, effectGuide } from "@/lib/effect-guide";
 import { effectPreview } from "@/lib/effect-motion";
 import { baseColor, restFrame } from "@/lib/key-lights";
 import { BOARD_HEIGHT, BOARD_WIDTH, KEYS } from "@/lib/keyboard-layout";
-import { OFFERED_LIGHTING_MODES, optionAfterSwitch } from "@/lib/lighting";
+import { carriedOption, OFFERED_LIGHTING_MODES } from "@/lib/lighting";
 import type { Pattern } from "@/lib/patterns";
 import type { LightingSettings } from "@/lib/profiles";
 
@@ -111,13 +111,10 @@ function sameTile(a: TileProps, b: TileProps): boolean {
 export function EffectPicker({
   lighting,
   pattern,
-  lastUsed,
   onPick,
 }: {
   lighting: LightingSettings;
   pattern: Pattern | null;
-  /** The option last used on each effect, so tiles show what switching back would send. */
-  lastUsed: Readonly<Record<number, number>>;
   onPick: (mode: number) => void;
 }) {
   // The tiles get one callback for the page's life, which always calls the newest `onPick`.
@@ -148,7 +145,7 @@ export function EffectPicker({
                 // Each tile previews exactly what clicking it would send.
                 const look: TileLook = {
                   mode: id,
-                  direction: selected ? lighting.direction : optionAfterSwitch(lighting.mode, lighting.direction, id, lastUsed),
+                  direction: selected ? lighting.direction : carriedOption(lighting.mode, lighting.direction, id),
                   speed: lighting.speed,
                   rainbow: lighting.rainbow,
                   color: lighting.color,
