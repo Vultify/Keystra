@@ -43,6 +43,29 @@ pub fn magcrate_state() -> MagCrateState {
     state
 }
 
+/// Whether another Keystra process is running, like the installed app while a development build
+/// is open. Two copies driving one keyboard would undo each other's settings.
+pub fn other_keystra_running() -> bool {
+    let Some(snapshot) = Snapshot::take() else {
+        return false;
+    };
+    let mut entry = PROCESSENTRY32W {
+        dwSize: size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+    let own = std::process::id();
+    // SAFETY: the snapshot handle is valid until dropped, and `entry` is a correctly sized struct.
+    let mut more = unsafe { Process32FirstW(snapshot.0, &mut entry) } != 0;
+    while more {
+        if entry.th32ProcessID != own && exe_name(&entry.szExeFile).eq_ignore_ascii_case("keystra.exe") {
+            return true;
+        }
+        // SAFETY: same as above.
+        more = unsafe { Process32NextW(snapshot.0, &mut entry) } != 0;
+    }
+    false
+}
+
 /// A Windows process snapshot handle, closed when dropped.
 struct Snapshot(HANDLE);
 

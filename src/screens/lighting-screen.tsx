@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { KeyboardIcon } from "lucide-react";
 
 import { EffectPicker } from "@/components/effect-picker";
@@ -13,7 +14,7 @@ import { useActiveProfile } from "@/hooks/use-active-profile";
 import { usePatternEditor } from "@/hooks/use-pattern-editor";
 import { effectGuide } from "@/lib/effect-guide";
 import { isGermanBoard, type KeyboardStatus } from "@/lib/keyboard";
-import { carriedOption, lightingMode, OFFERED_LIGHTING_MODES } from "@/lib/lighting";
+import { lightingMode, OFFERED_LIGHTING_MODES, optionAfterSwitch } from "@/lib/lighting";
 import type { LightingSettings, Profile, ProfileList } from "@/lib/profiles";
 
 /** How long the color picker waits after the last change before sending it. */
@@ -27,6 +28,13 @@ export function LightingScreen({ status, list }: { status: KeyboardStatus | null
   // The Custom effect's option is which saved pattern it shows.
   const patternSlot = profile && effectGuide(profile.lighting.mode).preview === "pattern" ? profile.lighting.direction : null;
   const editor = usePatternEditor(patternSlot, connected);
+  // The option last used on each effect this session, so switching back restores it.
+  const [lastUsed, setLastUsed] = useState<Record<number, number>>({});
+  const current = profile?.lighting;
+  useEffect(() => {
+    if (!current) return;
+    setLastUsed((used) => (used[current.mode] === current.direction ? used : { ...used, [current.mode]: current.direction }));
+  }, [current?.mode, current?.direction]);
   if (!profile) return <NoProfileNotice status={status} list={list} />;
   const { lighting } = profile;
   const mode = lightingMode(lighting.mode);
@@ -39,7 +47,7 @@ export function LightingScreen({ status, list }: { status: KeyboardStatus | null
 
   function pickEffect(next: number) {
     if (next === lighting.mode) return;
-    commit(withLighting({ mode: next, direction: carriedOption(lighting.mode, lighting.direction, next) }));
+    commit(withLighting({ mode: next, direction: optionAfterSwitch(lighting.mode, lighting.direction, next, lastUsed) }));
   }
 
   // The native color picker reports every drag step, so wait for it to settle before sending.
@@ -100,7 +108,7 @@ export function LightingScreen({ status, list }: { status: KeyboardStatus | null
             </CardAction>
           </CardHeader>
           <CardContent>
-            <EffectPicker lighting={lighting} pattern={editor.pattern} onPick={pickEffect} />
+            <EffectPicker lighting={lighting} pattern={editor.pattern} lastUsed={lastUsed} onPick={pickEffect} />
           </CardContent>
         </Card>
 

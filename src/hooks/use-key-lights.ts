@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, type RefObject } from "react";
 
 import type { EffectPreview } from "@/lib/effect-motion";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { lightOf } from "@/lib/key-lights";
 import { KEYS } from "@/lib/keyboard-layout";
 
@@ -8,11 +9,6 @@ import { KEYS } from "@/lib/keyboard-layout";
 const FRAME_MS = 33;
 
 type LightLayers = RefObject<(SVGElement | null)[]>[];
-
-/** Whether the system asks for less motion (Windows' "Animation effects" off). */
-function prefersReducedMotion(): boolean {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
 
 /**
  * Draws each key's light by writing straight onto its SVG elements (one per layer, in key order),
@@ -29,7 +25,8 @@ export function useKeyLights(
   const currentBases = useRef(bases);
   const currentLayers = useRef(layers);
   currentLayers.current = layers;
-  const still = !playing || prefersReducedMotion();
+  const reducedMotion = useReducedMotion();
+  const still = !playing || reducedMotion;
 
   const paint = useCallback(
     (seconds: number) => {

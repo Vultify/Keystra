@@ -91,6 +91,7 @@ pub fn write_pattern(transport: &mut dyn Transport, slot: u8, pattern: &Pattern)
         Ok(())
     };
     let kept = |transport: &mut dyn Transport| Ok((read_bytes(transport, slot)? == bytes).then(|| Pattern::from_bytes(&bytes)));
+    log::info!("saving pattern {}", slot + 1);
     transport::write_confirmed(transport, "pattern", send, kept)
 }
 

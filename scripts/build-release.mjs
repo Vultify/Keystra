@@ -2,7 +2,7 @@
 // then checks the built app for that folder's name. Rust stores dependency source paths inside the
 // exe, so without this the installer would carry the Windows user name.
 import { execSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -13,19 +13,23 @@ const homes = [...new Set([home, shortHome].filter(Boolean))];
 
 const flags = homes.map((path) => `--remap-path-prefix=${path}=~`);
 if (process.env.CARGO_HOME) flags.push(`--remap-path-prefix=${process.env.CARGO_HOME}=~/.cargo`);
-// Encoded flags are separated by 0x1F, so paths with spaces stay whole.
+// Encoded flags are separated by 0x1F, so paths with spaces stay whole. They replace any other
+// rustflags; Keystra sets none.
 const env = { ...process.env, CARGO_ENCODED_RUSTFLAGS: flags.join("\x1f") };
 delete env.RUSTFLAGS;
+
+const target = "src-tauri/target/release";
+const bundles = join(target, "bundle", "nsis");
+// Old installers are removed first, so only this build's installer can be published.
+rmSync(bundles, { recursive: true, force: true });
 
 // The base config is the dev identity ("Keystra Dev"); the release config makes it Keystra.
 execSync("npx tauri build --config src-tauri/tauri.release.conf.json", { stdio: "inherit", env });
 
-const target = "src-tauri/target/release";
-const bundles = join(target, "bundle", "nsis");
-const files = [join(target, "keystra.exe")];
-if (existsSync(bundles)) {
-  for (const name of readdirSync(bundles)) if (name.endsWith(".exe")) files.push(join(bundles, name));
-}
+// The exe is what users run. The installer holds a compressed copy of it, so scanning the
+// installer only checks its own uncompressed parts.
+const { version } = JSON.parse(readFileSync("package.json", "utf8"));
+const files = [join(target, "keystra.exe"), join(bundles, `Keystra_${version}_x64-setup.exe`)];
 
 // The folder names, long and short, searched in any letter case as 8-bit and UTF-16 text. The
 // names themselves are never printed.
