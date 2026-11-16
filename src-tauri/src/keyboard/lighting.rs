@@ -293,7 +293,7 @@ fn stored_rgb(color: &str) -> Option<[u8; 3]> {
     parse_hex(color).map(|rgb| if rgb == [0xFF; 3] { STORED_WHITE } else { rgb })
 }
 
-fn parse_hex(color: &str) -> Option<[u8; 3]> {
+pub(super) fn parse_hex(color: &str) -> Option<[u8; 3]> {
     let digits = color.strip_prefix('#').filter(|d| d.len() == 6 && d.chars().all(|c| c.is_ascii_hexdigit()))?;
     let byte = |i: usize| u8::from_str_radix(&digits[i..i + 2], 16).ok();
     Some([byte(0)?, byte(2)?, byte(4)?])

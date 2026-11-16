@@ -44,7 +44,7 @@ MagCrate is an Electron app. The screens and message building are JavaScript (`d
 | `0x04` / `0x84` | SET / GET_PROFILE | Profile switching. Byte 1 = profile index. |
 | `0x03` / `0x83` | SET / GET_REPORT | Polling rate. The RY5088 code uses: 0=8000, 1=4000, 2=2000, 3=1000, 4=500, 5=250, 6=125 Hz. The rate code goes in byte 2 for both SET and GET. |
 | `0x07` / `0x87` | SET / GET_LEDPARAM | Lighting mode. Bytes: 1 mode, 2 speed (inverted, 4 - speed), 3 brightness 0..4, 4 options (high nibble = direction, low nibble = color choice, which depends on the mode), 5..7 RGB. SET uses Bit8, GET uses Bit7. |
-| `0x0C` / `0x8C` | SET / GET_USERPIC | Static per-key colors ("Custom" mode, 5 slots). 7 packets of 56 bytes. Writes flash, so it's for saving a pattern, never for animation. |
+| `0x0C` / `0x8C` | SET / GET_USERPIC | Static per-key colors ("Custom" mode, 5 slots). 7 packets of 56 bytes. Writes flash, so it's for saving a pattern, never for animation. Decoded below. |
 | `0x09` / `0x89` | SET / GET_KBOPTION | Keyboard options (one shared payload). |
 | `0x0A` / `0x8A` | SET / GET_KEYMATRIX | Key remapping. |
 | `0x65` / `0xE5` | SET / GET_MULTI_MAGNETISM | Per-key actuation, rapid trigger, DKS. |
@@ -82,6 +82,37 @@ Lighting option byte: high nibble = the effect's option (direction, or the patte
 | Every other effect (2, 5, 6, 8, 9, 10, 14, 16 to 19) | yes | yes | yes | |
 
 Music Sync 3 (20) isn't in the MX 8.2's layout, so Keystra reads it but never writes it. Light Shadow and Music Sync take their colors from the screen or sound through MagCrate's helper, so on their own they may not show much.
+
+## Custom per-key colors (`0x0C` / `0x8C`)
+
+From MagCrate's `_setLightPic`, `_getLightPic` and `getLightPic` in `commonKBRY5088.*.js`, and the MX 8.2's own `defaultMatrix` in `ry5088_cherrymx82_8k_8k.*.js`. Reads and writes confirmed on my keyboard on 2026-11-15.
+
+- **5 slots (0 to 4)**, the same numbers the Custom effect's option uses (Pattern 1 is slot 0). Slot 0 holds red W A S D and slot 1 red 1 to 6, Q W E R and A S D F from the factory.
+- **Colors are 3 bytes (R, G, B) per light, in light-number order.** Light number = column x 6 + row. Rows top to bottom: function row, number row, Tab row, Caps row, Shift row, Ctrl row. Columns run left to right; see the table below.
+- **Read (`0x8C`):** request bytes 0 = `0x8C`, 1 = slot, 2 = `0xFF`, 3 = page (0 to 5), Bit7 checksum. Each reply is 64 bytes of raw color data with **no echo byte**, so pages 0 to 5 joined give 384 bytes (128 lights). With no echo, a reply mixed up with another app's can't be spotted from its first byte; Keystra reads the pattern twice and only trusts matching reads.
+- **Write (`0x0C`):** 7 packets. Bytes 0 = `0x0C`, 1 = slot, 2 = `0xFF`, 3 = packet (0 to 6), 4 = data length (56, or 42 for packet 6), 5 = 1 on the last packet, 7 = Bit7 checksum of bytes 0 to 6, then 56 data bytes (zero padded). 378 bytes in all, lights 0 to 125. MagCrate waits after the last packet. This writes flash, so Keystra writes only on Save pattern, never per click.
+
+**Light numbers on the MX 8.2 (US).** Gaps (`-`) have no key. 10 and 75 are the ISO-only keys, absent on the US board.
+
+| Column | Function row | Number row | Tab row | Caps row | Shift row | Ctrl row |
+|---|---|---|---|---|---|---|
+| 0 (0 to 5) | Esc | ` | Tab | Caps | LShift | LCtrl |
+| 1 (6 to 11) | - | 1 | Q | A | (ISO \\) | LWin |
+| 2 (12 to 17) | F1 | 2 | W | S | Z | LAlt |
+| 3 (18 to 23) | F2 | 3 | E | D | X | - |
+| 4 (24 to 29) | F3 | 4 | R | F | C | - |
+| 5 (30 to 35) | F4 | 5 | T | G | V | - |
+| 6 (36 to 41) | F5 | 6 | Y | H | B | Space |
+| 7 (42 to 47) | F6 | 7 | U | J | N | - |
+| 8 (48 to 53) | F7 | 8 | I | K | M | - |
+| 9 (54 to 59) | F8 | 9 | O | L | , | - |
+| 10 (60 to 65) | F9 | 0 | P | ; | . | RAlt |
+| 11 (66 to 71) | F10 | Minus | [ | ' | / | Fn |
+| 12 (72 to 77) | F11 | = | ] | (ISO #) | RShift | Menu |
+| 13 (78 to 83) | F12 | Backspace | \\ | Enter | - | RCtrl |
+| 14 (84 to 89) | PrtSc | Insert | Delete | - | - | Left |
+| 15 (90 to 95) | ScrLk | Home | End | - | Up | Down |
+| 16 (96 to 101) | Pause | PgUp | PgDn | - | - | Right |
 
 ## Profiles
 
@@ -131,7 +162,7 @@ The high bit does **not** mean a command is a harmless read: `0xAC`, `0xB0`..`0x
 ## Open questions
 
 - The 2.4 GHz dongle path is not covered yet. Wired first.
-- Whether Cherry's firmware build matches the MonsGeek one byte for byte beyond the three writes confirmed so far. Verify each new command with a read (GET) before any write.
+- Whether Cherry's firmware build matches the MonsGeek one byte for byte beyond the four writes confirmed so far (onboard profile, polling rate, lighting, per-key pattern). Verify each new command with a read (GET) before any write.
 
 ## Sources
 

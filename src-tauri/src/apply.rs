@@ -1,4 +1,4 @@
-//! Sending profiles to the keyboard: the one path the screens, the tray and the game watcher use.
+//! Sending profiles to the keyboard: the one path the screens and the tray use (and the game watcher will).
 //! Everything here blocks on the keyboard worker, so callers run it off the main thread.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -8,6 +8,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Listener, Manager};
 
 use crate::error::CommandError;
+use crate::pattern_backup;
 use crate::keyboard::{ApplyRequest, KeyboardError, KeyboardHandle, STATUS_EVENT, Snapshot};
 use crate::profiles::{Profile, ProfileError, ProfilesState};
 
@@ -72,8 +73,8 @@ pub fn keyboard_connected(app: &AppHandle) -> bool {
     app.try_state::<KeyboardHandle>().is_some_and(|keyboard| keyboard.is_connected())
 }
 
-/// Re-sends the profile in use each time the keyboard connects, so changes made while it was
-/// unplugged arrive. Only settings that differ are written.
+/// Each time the keyboard connects, re-sends the profile in use (writing only what differs) and
+/// copies any saved pattern Keystra hasn't seen yet.
 pub fn follow_connections(app: &AppHandle) {
     let handle = app.clone();
     let was_connected = Arc::new(AtomicBool::new(false));
@@ -82,7 +83,10 @@ pub fn follow_connections(app: &AppHandle) {
         if connected && !was_connected.swap(true, Ordering::SeqCst) {
             // Status events arrive on the keyboard worker's own thread, which must stay free to do the work.
             let handle = handle.clone();
-            tauri::async_runtime::spawn_blocking(move || resend_active(&handle));
+            tauri::async_runtime::spawn_blocking(move || {
+                resend_active(&handle);
+                pattern_backup::copy_missing(&handle);
+            });
         } else if !connected {
             was_connected.store(false, Ordering::SeqCst);
         }

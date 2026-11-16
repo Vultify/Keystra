@@ -6,8 +6,10 @@ mod apply;
 mod bindings;
 mod commands;
 mod error;
+mod files;
 mod keyboard;
 mod logging;
+mod pattern_backup;
 mod profiles;
 mod startup;
 mod tray;
@@ -20,12 +22,14 @@ pub fn run() {
         // Must come first: a second launch hands over to the running Keystra and exits.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| window::show_main(app)))
         .plugin(logging::plugin())
-        .on_window_event(window::keep_running_on_close)
+        .on_window_event(window::on_window_event)
         .setup(|app| {
             logging::install_panic_hook();
             log::info!("Keystra {} starting", app.package_info().version);
             let profiles_path = app.path().app_data_dir()?.join(profiles::FILE_NAME);
             app.manage(profiles::ProfilesState::new(profiles::ProfileStore::open(profiles_path)));
+            let patterns_path = app.path().app_data_dir()?.join(pattern_backup::FILE_NAME);
+            app.manage(pattern_backup::PatternBackup::open(patterns_path));
             // Both follow the worker's announcements, so they listen before it starts.
             apply::follow_connections(app.handle());
             tray::create(app.handle())?;
@@ -49,6 +53,9 @@ pub fn run() {
             commands::delete_profile,
             commands::save_keyboard_to_profile,
             commands::apply_profile,
+            commands::read_pattern,
+            commands::save_pattern,
+            commands::keep_keyboard_pattern,
             commands::start_with_windows,
             commands::set_start_with_windows,
         ])

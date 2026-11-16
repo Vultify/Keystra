@@ -5,7 +5,8 @@ use tauri::{AppHandle, State};
 
 use crate::apply::{self, SaveOutcome};
 use crate::error::CommandError;
-use crate::keyboard::{KeyboardError, KeyboardHandle, KeyboardStatus, Snapshot};
+use crate::keyboard::{KeyboardError, KeyboardHandle, KeyboardStatus, Pattern, Snapshot};
+use crate::pattern_backup::{PatternBackup, PatternReading};
 use crate::profiles::{Profile, ProfileError, ProfileList, ProfilesState};
 use crate::startup;
 
@@ -123,4 +124,44 @@ pub fn start_with_windows() -> Result<bool, CommandError> {
 #[tauri::command]
 pub fn set_start_with_windows(enabled: bool) -> Result<bool, CommandError> {
     Ok(startup::set_enabled(enabled)?)
+}
+
+/// Reads one of the keyboard's per-key color patterns. The first time Keystra sees a pattern it keeps a copy.
+#[tauri::command]
+pub async fn read_pattern(
+    keyboard: State<'_, KeyboardHandle>,
+    backup: State<'_, PatternBackup>,
+    slot: u8,
+) -> Result<PatternReading, KeyboardError> {
+    let keyboard = keyboard.inner().clone();
+    let pattern = blocking(move || keyboard.read_pattern(slot)).await?;
+    Ok(backup.reading(slot, pattern))
+}
+
+/// Makes the keyboard's current pattern Keystra's copy, for when it was changed elsewhere on
+/// purpose. Reads only; nothing is written to the keyboard.
+#[tauri::command]
+pub async fn keep_keyboard_pattern(
+    keyboard: State<'_, KeyboardHandle>,
+    backup: State<'_, PatternBackup>,
+    slot: u8,
+) -> Result<PatternReading, KeyboardError> {
+    let keyboard = keyboard.inner().clone();
+    let pattern = blocking(move || keyboard.read_pattern(slot)).await?;
+    backup.remember(slot, &pattern);
+    Ok(PatternReading { keyboard: pattern, saved_copy: None })
+}
+
+/// Saves a per-key color pattern to the keyboard's memory and keeps it as Keystra's copy.
+#[tauri::command]
+pub async fn save_pattern(
+    keyboard: State<'_, KeyboardHandle>,
+    backup: State<'_, PatternBackup>,
+    slot: u8,
+    pattern: Pattern,
+) -> Result<Pattern, KeyboardError> {
+    let keyboard = keyboard.inner().clone();
+    let saved = blocking(move || keyboard.save_pattern(slot, pattern)).await?;
+    backup.remember(slot, &saved);
+    Ok(saved)
 }

@@ -14,6 +14,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use super::conflicts::{self, MagCrateState};
 use super::device_events::DeviceWatch;
 use super::error::KeyboardError;
+use super::pattern::{self, Pattern};
 use super::protocol::{Command, PRODUCT_ID, USAGE, USAGE_PAGE, VENDOR_ID};
 use super::session::{self, ApplyRequest, Snapshot};
 use super::settings::{self, DeviceInfo};
@@ -40,8 +41,8 @@ const RETRY_DELAYS: [Duration; 4] = [
     Duration::from_secs(30),
 ];
 
-/// The least time between two applies, so quick repeated changes can never become a stream of
-/// writes. Requests that arrive meanwhile are merged into one.
+/// The least time between two writes to the keyboard (applies or pattern saves), so quick repeated
+/// changes can never become a stream of writes. Applies that arrive meanwhile are merged into one.
 const MIN_WRITE_GAP: Duration = Duration::from_millis(500);
 
 /// Shown when the keyboard is there but its replies keep getting mixed up.
@@ -64,6 +65,8 @@ pub enum KeyboardStatus {
 enum Job {
     ReadAll(Sender<Result<Snapshot, KeyboardError>>),
     Apply(ApplyRequest, Sender<Result<Snapshot, KeyboardError>>),
+    ReadPattern(u8, Sender<Result<Pattern, KeyboardError>>),
+    SavePattern(u8, Pattern, Sender<Result<Pattern, KeyboardError>>),
     /// Windows reported a USB input device arriving or leaving.
     DeviceChanged,
 }
@@ -94,7 +97,7 @@ impl KeyboardHandle {
             magcrate: MagCrateState::Closed,
             schedule: Schedule::new(watch.is_some(), Instant::now()),
             _watch: watch,
-            last_apply: None,
+            last_write: None,
         };
         app.manage(Self { jobs, status });
         thread::Builder::new()
@@ -113,16 +116,29 @@ impl KeyboardHandle {
 
     /// Reads every setting Keystra knows in one go. Blocks until the worker answers.
     pub fn read_all(&self) -> Result<Snapshot, KeyboardError> {
-        let (reply, answer) = mpsc::channel();
-        self.jobs.send(Job::ReadAll(reply)).map_err(|_| KeyboardError::WorkerStopped)?;
-        answer.recv().map_err(|_| KeyboardError::WorkerStopped)?
+        self.ask(Job::ReadAll)
     }
 
     /// Writes whatever in `request` differs from the keyboard, confirming each write with a read.
     /// Blocks until the worker answers with the keyboard's settings afterwards.
     pub fn apply(&self, request: ApplyRequest) -> Result<Snapshot, KeyboardError> {
+        self.ask(|reply| Job::Apply(request, reply))
+    }
+
+    /// Reads one of the keyboard's saved per-key color patterns.
+    pub fn read_pattern(&self, slot: u8) -> Result<Pattern, KeyboardError> {
+        self.ask(|reply| Job::ReadPattern(slot, reply))
+    }
+
+    /// Saves a per-key color pattern to the keyboard and returns what it now holds.
+    pub fn save_pattern(&self, slot: u8, pattern: Pattern) -> Result<Pattern, KeyboardError> {
+        self.ask(|reply| Job::SavePattern(slot, pattern, reply))
+    }
+
+    /// Sends a job to the worker and waits for its answer.
+    fn ask<T>(&self, job: impl FnOnce(Sender<Result<T, KeyboardError>>) -> Job) -> Result<T, KeyboardError> {
         let (reply, answer) = mpsc::channel();
-        self.jobs.send(Job::Apply(request, reply)).map_err(|_| KeyboardError::WorkerStopped)?;
+        self.jobs.send(job(reply)).map_err(|_| KeyboardError::WorkerStopped)?;
         answer.recv().map_err(|_| KeyboardError::WorkerStopped)?
     }
 }
@@ -278,7 +294,7 @@ struct Worker {
     schedule: Schedule,
     /// Keeps Windows' device announcements coming for as long as the worker runs.
     _watch: Option<DeviceWatch>,
-    last_apply: Option<Instant>,
+    last_write: Option<Instant>,
 }
 
 impl Worker {
@@ -288,17 +304,48 @@ impl Worker {
         loop {
             let wait = self.schedule.wait(Instant::now(), self.device.is_some());
             match inbox.recv_timeout(wait) {
-                // The caller may have gone away; nothing to do if so.
-                Ok(Job::ReadAll(reply)) => {
-                    let _ = reply.send(self.with_device(session::read_settings));
-                }
-                Ok(Job::Apply(request, reply)) => self.apply(request, reply, &inbox),
-                Ok(Job::DeviceChanged) => self.schedule.device_changed(Instant::now()),
+                Ok(job) => self.handle(job, &inbox),
                 Err(RecvTimeoutError::Timeout) => self.on_timer(),
                 Err(RecvTimeoutError::Disconnected) => break,
             }
         }
         log::info!("keyboard worker stopped");
+    }
+
+    // A caller may have gone away before its answer is sent; nothing to do if so.
+    fn handle(&mut self, job: Job, inbox: &Receiver<Job>) {
+        match job {
+            Job::ReadAll(reply) => {
+                let _ = reply.send(self.with_device(session::read_settings));
+            }
+            Job::Apply(request, reply) => self.apply(request, reply, inbox),
+            Job::ReadPattern(slot, reply) => {
+                let _ = reply.send(self.with_device(|transport, _| pattern::read_pattern(transport, slot)));
+            }
+            Job::SavePattern(slot, colors, reply) => {
+                self.wait_for_write_gap();
+                let result = self.write(|transport, _| pattern::write_pattern(transport, slot, &colors));
+                let _ = reply.send(result);
+            }
+            Job::DeviceChanged => self.schedule.device_changed(Instant::now()),
+        }
+    }
+
+    fn wait_for_write_gap(&self) {
+        if let Some(last) = self.last_write {
+            thread::sleep(MIN_WRITE_GAP.saturating_sub(last.elapsed()));
+        }
+    }
+
+    /// Runs a job that writes to the keyboard and records when, so the next write keeps its distance.
+    /// Every write job goes through here, after `wait_for_write_gap`.
+    fn write<T>(
+        &mut self,
+        job: impl FnOnce(&mut dyn Transport, DeviceInfo) -> Result<T, KeyboardError>,
+    ) -> Result<T, KeyboardError> {
+        let result = self.with_device(job);
+        self.last_write = Some(Instant::now());
+        result
     }
 
     fn on_timer(&mut self) {
@@ -422,47 +469,44 @@ impl Worker {
         self.set_status(KeyboardStatus::Disconnected);
     }
 
-    /// Applies a request after the minimum gap since the last apply, merged with any requests
+    /// Applies a request after the minimum gap since the last write, merged with any requests
     /// that queued up meanwhile. The newest caller gets the result; older ones learn theirs was
     /// replaced, so only one of them treats the apply as its own.
     fn apply(&mut self, request: ApplyRequest, reply: Sender<Result<Snapshot, KeyboardError>>, inbox: &Receiver<Job>) {
-        if let Some(last) = self.last_apply {
-            thread::sleep(MIN_WRITE_GAP.saturating_sub(last.elapsed()));
-        }
+        self.wait_for_write_gap();
         let mut request = request;
         let mut replies = vec![reply];
-        let mut reads = Vec::new();
+        // Other jobs that queued up meanwhile run after the apply, in order.
+        let mut later = Vec::new();
         while let Ok(job) = inbox.try_recv() {
             match job {
                 Job::Apply(newer, newer_reply) => {
                     request = request.then(newer);
                     replies.push(newer_reply);
                 }
-                Job::ReadAll(read_reply) => reads.push(read_reply),
-                Job::DeviceChanged => self.schedule.device_changed(Instant::now()),
+                other => later.push(other),
             }
         }
         if replies.len() > 1 {
             log::info!("merged {} quick changes into one apply", replies.len());
         }
-        let result = self.with_device(|transport, info| session::apply_settings(transport, info, &request));
-        self.last_apply = Some(Instant::now());
+        let result = self.write(|transport, info| session::apply_settings(transport, info, &request));
         // Only the newest caller's change is the one the keyboard ends up holding.
         let newest = replies.pop().expect("at least the first request");
         for reply in replies {
             let _ = reply.send(Err(KeyboardError::Superseded));
         }
         let _ = newest.send(result);
-        for read_reply in reads {
-            let _ = read_reply.send(self.with_device(session::read_settings));
+        for job in later {
+            self.handle(job, inbox);
         }
     }
 
     /// Runs a job against the open keyboard, dropping the connection if USB itself fails.
-    fn with_device(
+    fn with_device<T>(
         &mut self,
-        job: impl FnOnce(&mut dyn Transport, DeviceInfo) -> Result<Snapshot, KeyboardError>,
-    ) -> Result<Snapshot, KeyboardError> {
+        job: impl FnOnce(&mut dyn Transport, DeviceInfo) -> Result<T, KeyboardError>,
+    ) -> Result<T, KeyboardError> {
         let device = self.device.as_mut().ok_or(KeyboardError::NotConnected)?;
         let result = job(&mut device.transport, device.info.clone());
         if let Err(KeyboardError::Hid(message)) = &result {

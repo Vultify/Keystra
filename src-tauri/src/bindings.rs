@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use crate::apply::SETTINGS_EVENT;
-use crate::keyboard::{MAX_LEVEL, ONBOARD_SLOTS, POLLING_RATES, STATUS_EVENT, lighting_modes};
+use crate::keyboard::{GERMAN_DEVICE_ID, LIGHT_COUNT, MAX_LEVEL, ONBOARD_SLOTS, POLLING_RATES, STATUS_EVENT, lighting_modes};
 use crate::profiles::{MAX_NAME_LEN, PROFILES_EVENT};
 
 #[test]
@@ -41,6 +41,10 @@ fn export_constants() {
          /** The keyboard's onboard profiles are numbered 0 to ONBOARD_SLOTS - 1. */\n\
          export const ONBOARD_SLOTS = {ONBOARD_SLOTS};\n\n\
          export const MAX_NAME_LEN = {MAX_NAME_LEN};\n\n\
+         /** The German (ISO) MX 8.2, whose two extra keys the picture doesn't show yet. */\n\
+         export const GERMAN_DEVICE_ID = {GERMAN_DEVICE_ID};\n\n\
+         /** Lights in a pattern, by light number (column x 6 + row). */\n\
+         export const LIGHT_COUNT = {LIGHT_COUNT};\n\n\
          /** A lighting effect: MagCrate's name, the settings it uses, its options (direction or pattern,\n\
           * in firmware order) and whether the MX 8.2 offers it. */\n\
          export type LightingMode = {{\n  name: string;\n  usesColor: boolean;\n  brightness: boolean;\n  \

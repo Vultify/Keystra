@@ -1,14 +1,14 @@
-//! Reads and writes the profiles file. Only Rust touches it; the screens, the tray and the game
-//! watcher all go through this store.
+//! Reads and writes the profiles file. Only Rust touches it; the screens and the tray (and later
+//! the game watcher) all go through this store.
 
-use std::fs::{self, File};
-use std::io::{ErrorKind, Write};
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
 use super::error::ProfileError;
+use crate::files;
 use super::model::{MAX_NAME_LEN, Profile, ProfileFile, ProfileList, SCHEMA_VERSION, same_name};
 
 pub const FILE_NAME: &str = "profiles.json";
@@ -45,7 +45,7 @@ impl ProfileStore {
             }
             Err(ProfileError::Corrupt(reason)) => {
                 log::warn!("{FILE_NAME} is damaged: {reason}");
-                match backup_damaged(&path) {
+                match files::set_aside_damaged(&path) {
                     Ok(backup) => {
                         log::warn!("kept the damaged file as {backup}");
                         Self::start_fresh(path)
@@ -256,25 +256,7 @@ fn upgrade(mut raw: Value) -> Result<ProfileFile, ProfileError> {
 /// Writes and flushes a temporary file, then swaps it in, so neither a crash nor a power cut
 /// mid-save can leave half a file.
 fn write_file(path: &Path, file: &ProfileFile) -> Result<(), ProfileError> {
-    let io = |err: std::io::Error| ProfileError::Io(err.to_string());
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(io)?;
-    }
-    let json = serde_json::to_string_pretty(file).map_err(|err| ProfileError::Io(err.to_string()))?;
-    let temp = path.with_extension("json.tmp");
-    let mut out = File::create(&temp).map_err(io)?;
-    out.write_all(json.as_bytes()).map_err(io)?;
-    out.sync_all().map_err(io)?;
-    drop(out);
-    fs::rename(&temp, path).map_err(io)
-}
-
-/// Moves a damaged file aside and returns the backup's file name.
-fn backup_damaged(path: &Path) -> std::io::Result<String> {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let name = format!("profiles.damaged-{stamp}.json");
-    fs::rename(path, path.with_file_name(&name))?;
-    Ok(name)
+    files::write_json(path, file).map_err(|err| ProfileError::Io(err.to_string()))
 }
 
 #[cfg(test)]

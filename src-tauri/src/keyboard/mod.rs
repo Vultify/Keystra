@@ -5,6 +5,7 @@ mod conflicts;
 mod device_events;
 mod error;
 mod lighting;
+mod pattern;
 mod protocol;
 mod session;
 mod settings;
@@ -13,8 +14,12 @@ mod worker;
 
 pub use error::KeyboardError;
 pub use lighting::LightingSettings;
+pub use pattern::{LIGHT_COUNT, Pattern};
+pub use protocol::PATTERN_SLOTS;
 pub use protocol::ONBOARD_SLOTS;
 pub use settings::POLLING_RATES;
+#[cfg(test)]
+pub use settings::GERMAN_DEVICE_ID;
 pub use session::{ApplyRequest, Snapshot};
 pub use worker::{KeyboardHandle, KeyboardStatus, STATUS_EVENT};
 #[cfg(test)]

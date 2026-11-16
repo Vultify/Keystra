@@ -8,8 +8,9 @@ CLAUDE.md
 *.p12
 *.keystore
 
-# Cherry's software and analysis output (never commit)
+# Cherry's software, analysis output and phone videos of the lighting (never commit)
 research/vendor/
+research/effect-videos/
 
 # Dependencies and build output
 node_modules/

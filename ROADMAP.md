@@ -38,7 +38,7 @@ The data model decides how every later screen saves things, so it gets settled b
 - [x] Hardware test: switch onboard profiles in MagCrate and read back what changes. Result: profiles hold key mapping and actuation; lighting and polling rate didn't change on a switch.
 - [x] Profile data model based on that answer: Keystra keeps full profiles on the PC (lighting, polling rate, which onboard profile holds the keys, linked games) and applies the whole set when you switch. Any number of profiles; several can share one onboard profile.
 - [x] Local storage for profiles: `profiles.json` in the app's data folder, read and written only by Rust, with a `schemaVersion` field and an upgrade step on load, safe saves (temporary file, then swap), damaged files backed up, and files from a newer Keystra left untouched. The screens use it through Tauri commands.
-- [x] Leave room in the model for per-key settings: new fields use `#[serde(default)]` and bump `schemaVersion`, so Phase 8 adds fields instead of redoing it
+- [x] Leave room in the model for per-key settings: new fields use `#[serde(default)]` and bump `schemaVersion`, so version 2's per-key settings add fields instead of redoing it
 
 **Checkpoint:** profiles save and load in the app, and the design matches how the keyboard actually behaves.
 
@@ -78,33 +78,45 @@ The two features I use, starting with the harmless one.
 
 **Checkpoint (passed 2026-11-15):** profile switching works from the tray with the window closed.
 
-## Phase 7: Auto-switch per game
+## Phase 7: Custom per-key colors and effect previews
 
-- [ ] Watch the active window's program
-- [ ] Link programs to profiles in the Profiles page
-- [ ] Switch automatically, and fall back to a default profile when the game closes
+Decided 2026-11-15: per-key colors only before 1.0. The other extra settings moved to version 2.
 
+- [x] Decode MagCrate's per-key color command (`0x0C` / `0x8C`) and the MX 8.2's key order
+- [x] Read-only: show the keyboard's 5 saved patterns on the keyboard picture
+- [x] Pattern editor on the Lighting page: click keys to select them (Select all, Clear), pick a color, Save pattern writes the keyboard once (Discard undoes). Never streamed.
+- [x] Keep a copy of the 5 patterns on the PC so a keyboard reset can't lose them
+- [x] Looping previews on the keyboard picture for each effect (sweeps, rings, demo key presses, twinkles, falling light, fades), following color, speed and direction
 - [ ] README status line and CHANGELOG reread
 
-**Checkpoint:** opening a linked game switches the profile within a second.
+**Checkpoint:** I paint a pattern in Keystra, save it, and the keyboard shows it exactly; the picture shows each effect's kind of motion.
 
-## Phase 8: Extra settings (lower priority)
-
-Add these one at a time. Each one is read-only first, then gets writes.
-
-- [ ] Custom per-key colors (the 5 saved patterns). One-time saves only, never streamed.
-- [ ] Actuation point per key
-- [ ] Rapid trigger
-- [ ] Key remapping
-- [ ] Multi-action (DKS)
-- [ ] README status line and CHANGELOG reread
-
-## Phase 9: Release
+## Phase 8: Release
 
 - [ ] Run `/project-audit deep`
 - [ ] Windows installer
 - [ ] Version 1.0.0 in `package.json` and `src-tauri/Cargo.toml` (the installer reads it from `package.json`), and a CHANGELOG in Keep a Changelog format
 - [ ] Make the repo public
+
+## Version 2: Auto-switch per game
+
+Moved after 1.0.0 (decided 2026-11-15). Profiles already store `linkedApps`, so nothing earlier has to change for it.
+
+- [ ] Watch the active window's program
+- [ ] Link programs to profiles in the Profiles page
+- [ ] Switch automatically, and fall back to a default profile when the game closes
+- [ ] README status line and CHANGELOG reread
+
+**Checkpoint:** opening a linked game switches the profile within a second.
+
+## Version 2: Extra key settings
+
+Add these one at a time. Each one is read-only first, then gets writes.
+
+- [ ] Actuation point per key
+- [ ] Rapid trigger
+- [ ] Key remapping
+- [ ] Multi-action (DKS)
 
 ## Later
 

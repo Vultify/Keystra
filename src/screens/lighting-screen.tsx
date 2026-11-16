@@ -1,6 +1,10 @@
+import { KeyboardIcon } from "lucide-react";
+
 import { KeyboardNotice } from "@/components/keyboard-notice";
 import { KeyboardPicture } from "@/components/keyboard-picture";
+import { PatternEditorCard } from "@/components/pattern-editor";
 import { ErrorAlert, NoProfileNotice } from "@/components/notices";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel, FieldSet, FieldLegend } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -9,22 +13,11 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useActiveProfile } from "@/hooks/use-active-profile";
+import { usePatternEditor } from "@/hooks/use-pattern-editor";
 import { EFFECT_GROUPS, effectGuide } from "@/lib/effect-guide";
-import { MAX_LEVEL, type KeyboardStatus } from "@/lib/keyboard";
-import { lightingMode, OFFERED_LIGHTING_MODES } from "@/lib/lighting";
+import { isGermanBoard, MAX_LEVEL, type KeyboardStatus } from "@/lib/keyboard";
+import { COLOR_SWATCHES, lightingMode, OFFERED_LIGHTING_MODES } from "@/lib/lighting";
 import type { LightingSettings, Profile, ProfileList } from "@/lib/profiles";
-
-const SWATCHES = [
-  { name: "White", color: "#FFFFFF" },
-  { name: "Red", color: "#FF0000" },
-  { name: "Orange", color: "#FF8000" },
-  { name: "Yellow", color: "#FFFF00" },
-  { name: "Green", color: "#00FF00" },
-  { name: "Cyan", color: "#00FFFF" },
-  { name: "Blue", color: "#0000FF" },
-  { name: "Purple", color: "#7A30F8" },
-  { name: "Pink", color: "#FF00FF" },
-];
 
 /** How long the color picker waits after the last change before sending it. */
 const COLOR_SETTLE_MS = 400;
@@ -69,10 +62,14 @@ function LevelSlider({
   );
 }
 
-// Edits the active profile's lighting. Every change shows on the picture at once and reaches the
-// keyboard when a control is released.
+// Edits the active profile's lighting: changes show on the picture at once and reach the keyboard
+// when a control is released. The Custom effect also paints its saved per-key pattern.
 export function LightingScreen({ status, list }: { status: KeyboardStatus | null; list: ProfileList | null }) {
   const { profile, preview, commit, commitLater, saving, problem } = useActiveProfile(list);
+  const connected = status?.state === "connected";
+  // The Custom effect's option is which saved pattern it shows.
+  const patternSlot = profile && effectGuide(profile.lighting.mode).preview === "pattern" ? profile.lighting.direction : null;
+  const editor = usePatternEditor(patternSlot, connected);
   if (!profile) return <NoProfileNotice status={status} list={list} />;
   const { lighting } = profile;
   const mode = lightingMode(lighting.mode);
@@ -99,6 +96,16 @@ export function LightingScreen({ status, list }: { status: KeyboardStatus | null
     <div className="flex flex-col gap-6">
       <KeyboardNotice status={status} />
       <ErrorAlert title="That change didn't go through" message={problem} />
+      {isGermanBoard(status) && (
+        <Alert>
+          <KeyboardIcon />
+          <AlertTitle>The picture shows the US layout</AlertTitle>
+          <AlertDescription>
+            Your German keyboard works fully, but the picture doesn't have its two extra keys yet, so they can't be
+            painted. They keep their colors when you save a pattern.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Card>
         <CardHeader>
@@ -112,10 +119,16 @@ export function LightingScreen({ status, list }: { status: KeyboardStatus | null
         </CardHeader>
         <CardContent>
           <div className="mx-auto w-full max-w-4xl">
-            <KeyboardPicture lighting={lighting} />
+            <KeyboardPicture
+              lighting={lighting}
+              pattern={editor.pattern}
+              editing={patternSlot === null ? undefined : { selected: editor.selected, onToggle: editor.toggle }}
+            />
           </div>
         </CardContent>
       </Card>
+
+      {patternSlot !== null && <PatternEditorCard number={patternSlot + 1} editor={editor} connected={connected} />}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <Card>
@@ -223,7 +236,7 @@ export function LightingScreen({ status, list }: { status: KeyboardStatus | null
                           if (color) commit(withLighting({ color }));
                         }}
                       >
-                        {SWATCHES.map((swatch) => (
+                        {COLOR_SWATCHES.map((swatch) => (
                           <ToggleGroupItem key={swatch.color} value={swatch.color} aria-label={swatch.name} title={swatch.name}>
                             <span className="size-4 rounded-full border" style={{ backgroundColor: swatch.color }} />
                           </ToggleGroupItem>

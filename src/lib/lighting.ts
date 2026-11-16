@@ -35,3 +35,16 @@ export function describeLighting(mode: number, rainbow: boolean, color: string |
       : null,
   };
 }
+
+/** Quick color choices for the lighting color and for painting patterns. */
+export const COLOR_SWATCHES = [
+  { name: "White", color: "#FFFFFF" },
+  { name: "Red", color: "#FF0000" },
+  { name: "Orange", color: "#FF8000" },
+  { name: "Yellow", color: "#FFFF00" },
+  { name: "Green", color: "#00FF00" },
+  { name: "Cyan", color: "#00FFFF" },
+  { name: "Blue", color: "#0000FF" },
+  { name: "Purple", color: "#7A30F8" },
+  { name: "Pink", color: "#FF00FF" },
+];

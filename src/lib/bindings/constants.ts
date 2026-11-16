@@ -15,6 +15,12 @@ export const ONBOARD_SLOTS = 4;
 
 export const MAX_NAME_LEN = 40;
 
+/** The German (ISO) MX 8.2, whose two extra keys the picture doesn't show yet. */
+export const GERMAN_DEVICE_ID = 3098;
+
+/** Lights in a pattern, by light number (column x 6 + row). */
+export const LIGHT_COUNT = 126;
+
 /** A lighting effect: MagCrate's name, the settings it uses, its options (direction or pattern,
 * in firmware order) and whether the MX 8.2 offers it. */
 export type LightingMode = {

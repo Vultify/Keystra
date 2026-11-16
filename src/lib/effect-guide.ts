@@ -11,34 +11,55 @@ export const EFFECT_GROUPS: { id: EffectGroup; title: string }[] = [
 ];
 
 /**
- * How the keyboard picture shows an effect: dark, a still light, light that moves, the whole board
- * cycling colors, a breathing pulse, a saved per-key pattern, or colors that come from outside.
+ * How the keyboard picture shows an effect. The moving kinds are looping examples of the effect's
+ * motion (see effect-motion.ts), not a frame-by-frame copy of the keyboard's animation.
  */
-type EffectPreview = "off" | "still" | "moving" | "cycle" | "breathe" | "pattern" | "outside";
+type PreviewKind =
+  | "off"
+  | "still"
+  | "pattern"
+  | "outside"
+  | "cycle"
+  | "breathe"
+  | "sweep"
+  | "layers"
+  | "wave"
+  | "neon"
+  | "snake"
+  | "rings"
+  | "loop"
+  | "twinkle"
+  | "dazzle"
+  | "fall"
+  | "meteor"
+  | "ripple"
+  | "radiant"
+  | "press"
+  | "press-off";
 
-export type EffectGuide = { group: EffectGroup; preview: EffectPreview; description: string };
+export type EffectGuide = { group: EffectGroup; preview: PreviewKind; description: string };
 
 const GUIDE: Record<number, EffectGuide> = {
   0: { group: "steady", preview: "off", description: "All lights off." },
   1: { group: "steady", preview: "still", description: "One steady color, or a still rainbow." },
   2: { group: "animated", preview: "breathe", description: "The whole board fades in and out." },
   3: { group: "animated", preview: "cycle", description: "The whole board slowly cycles through every color." },
-  4: { group: "animated", preview: "moving", description: "Color flows across the board in one direction." },
-  5: { group: "typing", preview: "moving", description: "Light ripples out from each key you press." },
-  6: { group: "animated", preview: "moving", description: "Keys twinkle on at random, like stars." },
-  7: { group: "animated", preview: "moving", description: "A trail of light snakes across the keys." },
-  8: { group: "typing", preview: "moving", description: "Keys light up when you press them, then fade." },
-  9: { group: "animated", preview: "moving", description: "Layers of light move across the board." },
-  10: { group: "animated", preview: "moving", description: "A smooth wave of light rolls across the board." },
-  11: { group: "animated", preview: "moving", description: "Rings of color spread from the center." },
-  12: { group: "animated", preview: "moving", description: "A line of light sweeps across the board." },
+  4: { group: "animated", preview: "sweep", description: "Color flows across the board in one direction." },
+  5: { group: "typing", preview: "ripple", description: "Light ripples out from each key you press." },
+  6: { group: "animated", preview: "twinkle", description: "Keys twinkle on at random, like stars." },
+  7: { group: "animated", preview: "snake", description: "A trail of light snakes across the keys." },
+  8: { group: "typing", preview: "press", description: "Keys light up when you press them, then fade." },
+  9: { group: "animated", preview: "layers", description: "Layers of light move across the board." },
+  10: { group: "animated", preview: "wave", description: "A smooth wave of light rolls across the board." },
+  11: { group: "animated", preview: "rings", description: "Rings of color spread from the center." },
+  12: { group: "animated", preview: "neon", description: "A line of light sweeps across the board." },
   13: { group: "special", preview: "pattern", description: "Shows one of the 5 per-key patterns saved on the keyboard." },
-  14: { group: "typing", preview: "moving", description: "Light shoots out from the keys you press." },
-  15: { group: "animated", preview: "moving", description: "Light circles around the board." },
-  16: { group: "animated", preview: "moving", description: "Keys flicker through random colors." },
-  17: { group: "animated", preview: "moving", description: "Light falls down the keys like snow." },
-  18: { group: "animated", preview: "moving", description: "Meteors of light streak across the keys." },
-  19: { group: "typing", preview: "moving", description: "Keys go dark when you press them, then light back up." },
+  14: { group: "typing", preview: "radiant", description: "Light shoots out from the keys you press." },
+  15: { group: "animated", preview: "loop", description: "Light circles around the board." },
+  16: { group: "animated", preview: "dazzle", description: "Keys flicker through random colors." },
+  17: { group: "animated", preview: "fall", description: "Light falls down the keys like snow." },
+  18: { group: "animated", preview: "meteor", description: "Meteors of light streak across the keys." },
+  19: { group: "typing", preview: "press-off", description: "Keys go dark when you press them, then light back up." },
   21: { group: "special", preview: "outside", description: "Matches the colors on your screen. Needs MagCrate's helper running." },
   22: { group: "special", preview: "outside", description: "Moves to the sound on your PC. Needs MagCrate's helper running." },
 };

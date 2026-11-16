@@ -1,17 +1,19 @@
+import type { ReactNode } from "react";
 import { LayersIcon, TriangleAlertIcon } from "lucide-react";
 
 import { KeyboardNotice } from "@/components/keyboard-notice";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import type { KeyboardStatus } from "@/lib/keyboard";
 import type { ProfileList } from "@/lib/profiles";
 
 // The one way screens show a failed action: nothing when there's no message.
-export function ErrorAlert({ title, message }: { title: string; message: string | null }) {
+export function ErrorAlert({ title, message, action }: { title: string; message: string | null; action?: ReactNode }) {
   if (!message) return null;
   return (
     <Alert variant="destructive">
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>{message}</AlertDescription>
+      {action && <AlertAction>{action}</AlertAction>}
     </Alert>
   );
 }

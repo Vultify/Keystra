@@ -22,7 +22,7 @@ pub struct Profile {
     pub onboard_slot: u8,
     pub lighting: LightingSettings,
     pub polling_rate_hz: u32,
-    /// Program names (like "game.exe") that switch to this profile when they're in front (Phase 7).
+    /// Program names (like "game.exe") that switch to this profile when they're in front (version 2).
     #[serde(default)]
     pub linked_apps: Vec<String>,
 }

@@ -7,6 +7,7 @@ import type { Snapshot } from "./bindings/Snapshot";
 
 // Types and constants are generated from the Rust side by `cargo test` (see src/lib/bindings).
 export { MAX_LEVEL } from "./bindings/constants";
+import { GERMAN_DEVICE_ID } from "./bindings/constants";
 export type { DeviceInfo } from "./bindings/DeviceInfo";
 export type { Exchange } from "./bindings/Exchange";
 export type { KeyboardStatus } from "./bindings/KeyboardStatus";
@@ -46,4 +47,9 @@ export function toHex(bytes: number[]): string {
   while (end > 8 && bytes[end - 1] === 0) end--;
   const shown = bytes.slice(0, end).map((b) => b.toString(16).toUpperCase().padStart(2, "0"));
   return end < bytes.length ? `${shown.join(" ")} …` : shown.join(" ");
+}
+
+/** Whether the connected keyboard is the German model, whose two extra keys the picture doesn't show yet. */
+export function isGermanBoard(status: KeyboardStatus | null): boolean {
+  return status?.state === "connected" && status.info.deviceId === GERMAN_DEVICE_ID;
 }

@@ -6,8 +6,11 @@ use serde::Serialize;
 use super::error::KeyboardError;
 use super::protocol::Command;
 
+/// The German (ISO) MX 8.2. It speaks the same protocol, but Keystra's keyboard picture is the US layout.
+pub const GERMAN_DEVICE_ID: u32 = 3098;
+
 /// Device IDs reported by GET_USB_VERSION for the MX 8.2 Pro TMR.
-const MODELS: [(u32, &str); 2] = [(2494, "MX 8.2 Pro TMR"), (3098, "MX 8.2 Pro TMR (DE)")];
+const MODELS: [(u32, &str); 2] = [(2494, "MX 8.2 Pro TMR"), (GERMAN_DEVICE_ID, "MX 8.2 Pro TMR (DE)")];
 
 /// Polling rates in Hz by firmware code: the code is the index. Shared by reads and writes.
 pub const POLLING_RATES: [u32; 7] = [8000, 4000, 2000, 1000, 500, 250, 125];

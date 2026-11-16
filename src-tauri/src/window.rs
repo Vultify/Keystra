@@ -1,5 +1,7 @@
-//! The main window's life: it hides to the tray instead of closing, starts hidden when Windows
-//! launches Keystra at sign-in, and comes back to the front when asked.
+//! The main window's life: it hides to the tray instead of closing, pauses its page while minimized,
+//! starts hidden when Windows launches Keystra at sign-in, and comes back to the front when asked.
+
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{AppHandle, Manager, Webview, WebviewWindow, Window, WindowEvent};
 
@@ -33,11 +35,35 @@ pub fn hide_main(app: &AppHandle) {
     }
 }
 
-/// Closing the window hides it, so Keystra keeps running in the tray. Quit lives in the tray menu.
-pub fn keep_running_on_close(window: &Window, event: &WindowEvent) {
-    if let WindowEvent::CloseRequested { api, .. } = event {
-        api.prevent_close();
-        hide_main(window.app_handle());
+/// Set while the webview is hidden because the window is minimized.
+static MINIMIZED: AtomicBool = AtomicBool::new(false);
+
+/// Closing the window hides it, so Keystra keeps running in the tray (Quit lives in the tray menu).
+/// Minimizing hides the webview too, so the page stops drawing until the window comes back.
+pub fn on_window_event(window: &Window, event: &WindowEvent) {
+    match event {
+        WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            hide_main(window.app_handle());
+        }
+        WindowEvent::Resized(_) => follow_minimize(window),
+        _ => {}
+    }
+}
+
+fn follow_minimize(window: &Window) {
+    let Some(main) = window.app_handle().get_webview_window(MAIN_WINDOW) else { return };
+    let webview: &Webview = main.as_ref();
+    let minimized = main.is_minimized().unwrap_or(false);
+    let result = if minimized && !MINIMIZED.swap(true, Ordering::SeqCst) {
+        webview.hide()
+    } else if !minimized && MINIMIZED.swap(false, Ordering::SeqCst) {
+        webview.show()
+    } else {
+        Ok(())
+    };
+    if let Err(err) = result {
+        log::warn!("couldn't follow the window being minimized or restored: {err}");
     }
 }
 

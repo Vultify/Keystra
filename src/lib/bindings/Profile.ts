@@ -7,6 +7,6 @@ export type Profile = { id: number, name: string,
  */
 onboardSlot: number, lighting: LightingSettings, pollingRateHz: number, 
 /**
- * Program names (like "game.exe") that switch to this profile when they're in front (Phase 7).
+ * Program names (like "game.exe") that switch to this profile when they're in front (version 2).
  */
 linkedApps: Array<string>, };
