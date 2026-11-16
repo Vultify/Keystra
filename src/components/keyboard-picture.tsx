@@ -1,7 +1,9 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type RefObject } from "react";
+import { useMemo, useRef, type KeyboardEvent } from "react";
 
+import { useKeyLights } from "@/hooks/use-key-lights";
 import { effectGuide } from "@/lib/effect-guide";
-import { effectPreview, type EffectPreview, type KeyLook } from "@/lib/effect-motion";
+import { effectPreview } from "@/lib/effect-motion";
+import { baseColor } from "@/lib/key-lights";
 import { MAX_LEVEL } from "@/lib/keyboard";
 import { BOARD_HEIGHT, BOARD_WIDTH, KEYS, keyName, type Key } from "@/lib/keyboard-layout";
 import { lightingMode } from "@/lib/lighting";
@@ -16,35 +18,6 @@ const CAP = "#141419";
 const CAP_TOP = "#1d1d24";
 const UNLIT = "#4a4a55";
 const PRINTED = "#6c6c78";
-const DARK = "#000000";
-
-/** The picture redraws moving effects at most this often, which is plenty for a preview. */
-const FRAME_MS = 33;
-
-/** The color under one key before the effect moves it, or `null` when the key stays dark. */
-function baseColor(
-  lighting: Pick<LightingSettings, "mode" | "rainbow" | "color">,
-  pattern: Pattern | null,
-): (key: Key) => string | null {
-  const preview = effectGuide(lighting.mode).preview;
-  if (preview === "off") return () => null;
-  if (preview === "pattern") {
-    // The keyboard's saved pattern, key by key. Black keys stay dark.
-    return (key) => {
-      const color = pattern?.[key.light];
-      return color && color.toUpperCase() !== DARK ? color : null;
-    };
-  }
-  const hueAt = (key: Key) => Math.round(((key.x + key.w / 2) / BOARD_WIDTH) * 330);
-  if (preview === "outside") return (key) => `hsl(${hueAt(key)} 45% 60%)`;
-  return lighting.rainbow ? (key) => `hsl(${hueAt(key)} 90% 60%)` : () => lighting.color;
-}
-
-/** How one key's light is drawn at one moment: the effect's own hue when it sets one, else its base color. */
-function lightOf(base: string | null, look: KeyLook): { fill: string; opacity: number } {
-  if (base === null) return { fill: "transparent", opacity: 0 };
-  return { fill: look.hue === null ? base : `hsl(${Math.round(look.hue)} 90% 60%)`, opacity: look.level };
-}
 
 const center = (k: Key) => ({ cx: (k.x + k.w / 2) * UNIT, cy: (k.y + 0.5) * UNIT });
 
@@ -84,59 +57,6 @@ type Editing = {
   onToggle: (light: number) => void;
 };
 
-/**
- * Draws each key's light by writing straight onto its glow and lit legend; React never sets these,
- * so nothing it remembers can leave a key showing an old frame. Moving effects redraw about 30 times
- * a second, and the loop stops when the window is hidden or the system asks for less motion.
- */
-function useKeyLights(
-  preview: EffectPreview,
-  bases: (string | null)[],
-  glows: RefObject<(SVGRectElement | null)[]>,
-  legends: RefObject<(SVGTextElement | null)[]>,
-) {
-  const start = useRef(0);
-  const currentBases = useRef(bases);
-
-  const paint = useCallback(
-    (seconds: number) => {
-      KEYS.forEach((key, i) => {
-        const { fill, opacity } = lightOf(currentBases.current[i], preview.at(key, seconds));
-        for (const element of [glows.current[i], legends.current[i]]) {
-          element?.setAttribute("fill", fill);
-          element?.setAttribute("opacity", String(opacity));
-        }
-      });
-    },
-    [preview, glows, legends],
-  );
-
-  // A new kind of motion starts its loop over; a new color carries on from the same moment.
-  useLayoutEffect(() => {
-    start.current = performance.now();
-  }, [preview]);
-
-  useLayoutEffect(() => {
-    currentBases.current = bases;
-    paint((performance.now() - start.current) / 1000);
-  }, [bases, paint]);
-
-  // A layout effect, so an old loop is always stopped before a new effect's first frame is drawn.
-  useLayoutEffect(() => {
-    if (!preview.moving || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    let frame = 0;
-    let last = 0;
-    const draw = (now: number) => {
-      frame = requestAnimationFrame(draw);
-      if (now - last < FRAME_MS) return;
-      last = now;
-      paint((now - start.current) / 1000);
-    };
-    frame = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(frame);
-  }, [preview, paint]);
-}
-
 // A drawn MX 8.2 lit the way the lighting settings describe: light shows around each keycap's
 // edge and through its top legends, like the real board, playing a looping example of the effect.
 // With `editing`, keys can be clicked to select them for painting a pattern.
@@ -157,7 +77,7 @@ export function KeyboardPicture({
   const bases = useMemo(() => KEYS.map(baseColor({ mode: effect, rainbow, color }, pattern)), [effect, rainbow, color, pattern]);
   const glows = useRef<(SVGRectElement | null)[]>([]);
   const legends = useRef<(SVGTextElement | null)[]>([]);
-  useKeyLights(preview, bases, glows, legends);
+  useKeyLights(preview, bases, [glows, legends]);
 
   const onKey = (event: KeyboardEvent, light: number) => {
     if (event.key === "Enter" || event.key === " ") {

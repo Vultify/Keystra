@@ -7,8 +7,6 @@ import { saveProfile, type Profile, type ProfileList } from "@/lib/profiles";
 export type ActiveProfile = {
   /** The active profile as the screens should show it, including changes still on their way. */
   profile: Profile | null;
-  /** Shows a change on screen without saving it, for a slider being dragged. */
-  preview: (next: Profile) => void;
   /** Saves a change and sends it to the keyboard. */
   commit: (next: Profile) => void;
   /** Shows a change at once and saves it after `wait` ms without another one, for controls that report every step. */
@@ -32,7 +30,6 @@ export function useActiveProfile(list: ProfileList | null): ActiveProfile {
   const unsent = stored !== null && list?.unsentId === stored.id;
   // Only the newest change may report a problem; older ones may have been merged into it.
   const newest = useRef(0);
-  const dragging = useRef(false);
   const waiting = useRef<Waiting | null>(null);
 
   const save = useCallback((next: Profile) => {
@@ -65,7 +62,6 @@ export function useActiveProfile(list: ProfileList | null): ActiveProfile {
   const storedId = stored?.id ?? null;
   useEffect(() => {
     flush();
-    dragging.current = false;
     newest.current++;
     setProblem(null);
     setKeyboardProblem(null);
@@ -78,7 +74,7 @@ export function useActiveProfile(list: ProfileList | null): ActiveProfile {
 
   // Follow the saved profile, unless one of our own changes is still being made or saved.
   useEffect(() => {
-    if (pending === 0 && !dragging.current && !waiting.current) {
+    if (pending === 0 && !waiting.current) {
       setDraft(storedKey ? (JSON.parse(storedKey) as Profile) : null);
     }
   }, [storedKey, pending]);
@@ -90,7 +86,6 @@ export function useActiveProfile(list: ProfileList | null): ActiveProfile {
     (next: Profile) => {
       if (waiting.current) window.clearTimeout(waiting.current.timer);
       waiting.current = null;
-      dragging.current = false;
       setDraft(next);
       save(next);
     },
@@ -106,10 +101,5 @@ export function useActiveProfile(list: ProfileList | null): ActiveProfile {
     [flush],
   );
 
-  const preview = useCallback((next: Profile) => {
-    dragging.current = true;
-    setDraft(next);
-  }, []);
-
-  return { profile: draft, preview, commit, commitLater, saving: pending > 0, problem: problem ?? keyboardProblem };
+  return { profile: draft, commit, commitLater, saving: pending > 0, problem: problem ?? keyboardProblem };
 }
