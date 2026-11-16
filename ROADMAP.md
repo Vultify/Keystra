@@ -87,7 +87,7 @@ Decided 2026-11-15: per-key colors only before 1.0. The other extra settings mov
 - [x] Pattern editor on the Lighting page: click keys to select them (Select all, Clear), pick a color, Save pattern writes the keyboard once (Discard undoes). Never streamed.
 - [x] Keep a copy of the 5 patterns on the PC so a keyboard reset can't lose them
 - [x] Looping previews on the keyboard picture for each effect (sweeps, rings, demo key presses, twinkles, falling light, fades), following color, speed and direction
-- [ ] README status line and CHANGELOG reread
+- [x] README status line and CHANGELOG reread
 
 **Checkpoint:** I paint a pattern in Keystra, save it, and the keyboard shows it exactly; the picture shows each effect's kind of motion.
 
