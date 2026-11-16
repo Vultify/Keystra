@@ -1,6 +1,4 @@
 import { useId, type KeyboardEvent } from "react";
-import { Radio } from "@base-ui/react/radio";
-import { RadioGroup } from "@base-ui/react/radio-group";
 import { cn } from "cn";
 import {
   ArrowDownIcon,
@@ -59,18 +57,17 @@ function isLight(hex: string): boolean {
 }
 
 /**
- * Arrow keys on a row of radios: Right and Up go forward, Left and Down go back. Handled before
- * Base UI's own keys, which wrap around at the ends and pick a value on every press.
+ * Where the arrow keys go in a row of choices: Right and Up forward, Left and Down back, Home and End
+ * to the ends, never past them. Returns `null` for other keys.
  */
-function arrowStep(event: KeyboardEvent): number | null {
-  const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[event.key];
-  if (step === undefined) return null;
+function arrowTarget(event: KeyboardEvent, from: number, last: number): number | null {
+  const moves: Record<string, number> = { ArrowRight: from + 1, ArrowUp: from + 1, ArrowLeft: from - 1, ArrowDown: from - 1, Home: 0, End: last };
+  if (!(event.key in moves)) return null;
   event.preventDefault();
-  event.stopPropagation();
-  return step;
+  return Math.min(last, Math.max(0, moves[event.key]));
 }
 
-const radiosIn = (event: KeyboardEvent) => [...event.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]')];
+const choicesIn = (event: KeyboardEvent) => [...event.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]')];
 
 /** A section's heading. Its id names the control below it for screen readers. */
 function SectionLabel({ id, icon: Icon, label, value }: { id: string; icon: LucideIcon; label: string; value?: string }) {
@@ -102,28 +99,26 @@ function StepControl({
 }) {
   const labelId = useId();
   const steps = Array.from({ length: MAX_LEVEL + 1 }, (_, step) => step);
-  const onArrow = (event: KeyboardEvent) => {
-    const step = arrowStep(event);
-    if (step === null) return;
-    const next = Math.min(MAX_LEVEL, Math.max(0, value + step));
+  // Like a slider: each arrow press moves one step and sends it.
+  const onKey = (event: KeyboardEvent) => {
+    const next = arrowTarget(event, value, MAX_LEVEL);
+    if (next === null) return;
     if (next !== value) onChange(next);
-    radiosIn(event)[next]?.focus();
+    choicesIn(event)[next]?.focus();
   };
   return (
     <div className="flex flex-col gap-2.5">
       <SectionLabel id={labelId} icon={icon} label={label} value={`${value} of ${MAX_LEVEL}`} />
-      <RadioGroup<number>
-        aria-labelledby={labelId}
-        value={value}
-        onValueChange={(next) => next !== value && onChange(next)}
-        onKeyDownCapture={onArrow}
-        className="grid grid-cols-5 gap-1.5"
-      >
+      <div role="radiogroup" aria-labelledby={labelId} onKeyDown={onKey} className="grid grid-cols-5 gap-1.5">
         {steps.map((step) => (
-          <Radio.Root
+          <button
             key={step}
-            value={step}
+            type="button"
+            role="radio"
+            aria-checked={step === value}
             aria-label={`${step} of ${MAX_LEVEL}`}
+            tabIndex={step === value ? 0 : -1}
+            onClick={() => step !== value && onChange(step)}
             className={cn(
               "h-7 rounded-md transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
               step <= value ? "bg-primary hover:bg-primary/90" : "bg-muted hover:bg-muted-foreground/25",
@@ -132,7 +127,7 @@ function StepControl({
             style={step <= value ? { opacity: 0.45 + 0.55 * (step / MAX_LEVEL) } : undefined}
           />
         ))}
-      </RadioGroup>
+      </div>
       <div className="flex justify-between text-xs text-muted-foreground" aria-hidden>
         <span>{low}</span>
         <span>{high}</span>
@@ -154,13 +149,13 @@ function ColorControl({
   const color = lighting.color.toUpperCase();
   const swatch = COLOR_SWATCHES.find((s) => s.color.toUpperCase() === color);
   const custom = !swatch;
-  // Arrows only move between swatches; Space, Enter or a click picks one, so browsing sends nothing.
+  // One Tab stop for the row. Arrows only move between swatches; Space, Enter or a click picks one,
+  // so browsing the colors sends nothing to the keyboard.
+  const tabbable = swatch ?? COLOR_SWATCHES[0];
   const moveBetweenSwatches = (event: KeyboardEvent) => {
-    const step = arrowStep(event);
-    if (step === null) return;
-    const radios = radiosIn(event);
-    const at = radios.indexOf(document.activeElement as HTMLElement);
-    radios[Math.min(radios.length - 1, Math.max(0, at + step))]?.focus();
+    const choices = choicesIn(event);
+    const next = arrowTarget(event, choices.indexOf(document.activeElement as HTMLElement), choices.length - 1);
+    if (next !== null) choices[next]?.focus();
   };
 
   return (
@@ -197,28 +192,26 @@ function ColorControl({
         </div>
       ) : (
         <div className="flex flex-wrap gap-2.5">
-          <RadioGroup<string>
-            aria-labelledby={labelId}
-            value={swatch?.color ?? ""}
-            onValueChange={(next) => onCommit({ color: next.toUpperCase(), rainbow: false })}
-            onKeyDownCapture={moveBetweenSwatches}
-            className="contents"
-          >
+          <div role="radiogroup" aria-labelledby={labelId} onKeyDown={moveBetweenSwatches} className="contents">
             {COLOR_SWATCHES.map((s) => (
-              <Radio.Root
+              <button
                 key={s.color}
-                value={s.color}
+                type="button"
+                role="radio"
+                aria-checked={s === swatch}
                 aria-label={s.name}
                 title={s.name}
+                tabIndex={s === tabbable ? 0 : -1}
+                onClick={() => s !== swatch && onCommit({ color: s.color.toUpperCase(), rainbow: false })}
                 className={cn("flex size-8 items-center justify-center rounded-full", SWATCH_RING, swatchRing(s === swatch))}
                 style={{ backgroundColor: s.color }}
               >
-                <Radio.Indicator>
+                {s === swatch && (
                   <CheckIcon className={cn("size-4", isLight(s.color) ? "text-black" : "text-white")} strokeWidth={3} />
-                </Radio.Indicator>
-              </Radio.Root>
+                )}
+              </button>
             ))}
-          </RadioGroup>
+          </div>
           <label
             title="Pick any color"
             className={cn(

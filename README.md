@@ -40,7 +40,7 @@ npm install
 npm start
 ```
 
-`npm start` runs a development build named "Keystra Dev". It has its own settings folder (`%APPDATA%\com.vultify.keystra.dev`), its own start-with-Windows entry and its own single-instance lock, so it never touches an installed Keystra or its profiles.
+`npm start` (or `npm run tauri dev`) runs a development build named "Keystra Dev". It has its own settings folder (`%APPDATA%\com.vultify.keystra.dev`), its own start-with-Windows entry and its own single-instance lock, so it never touches an installed Keystra or its profiles. Only the release build is named Keystra.
 
 To run the tests (this also regenerates the screens' TypeScript types in `src/lib/bindings` from the Rust types):
 

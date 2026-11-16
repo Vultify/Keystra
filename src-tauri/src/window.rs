@@ -14,9 +14,29 @@ pub fn started_hidden() -> bool {
     std::env::args().any(|arg| arg == STARTED_HIDDEN_ARG)
 }
 
-/// Shows the main window and brings it to the front, creating it the first time.
+/// Set while the main window is being created, so two quick requests don't both build it.
+static CREATING: AtomicBool = AtomicBool::new(false);
+
+/// Shows the main window and brings it to the front, creating it the first time. Creating happens
+/// on its own thread: building a webview from inside a tray or launch event can deadlock on Windows.
 pub fn show_main(app: &AppHandle) {
-    let Some(window) = main_window(app) else { return };
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+        show(&window);
+        return;
+    }
+    if CREATING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Some(window) = create_main(&app) {
+            show(&window);
+        }
+        CREATING.store(false, Ordering::SeqCst);
+    });
+}
+
+fn show(window: &WebviewWindow) {
     let webview: &Webview = window.as_ref();
     let shown = window
         .unminimize()
@@ -28,13 +48,11 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
-/// The main window, built from its config entry (`create: false`) if it doesn't exist yet.
-fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-        return Some(window);
-    }
+/// Builds the main window from its config entry (`create: false`), titled with the product name.
+fn create_main(app: &AppHandle) -> Option<WebviewWindow> {
     let config = app.config().app.windows.iter().find(|w| w.label == MAIN_WINDOW)?;
-    match WebviewWindowBuilder::from_config(app, config).and_then(|builder| builder.build()) {
+    let built = WebviewWindowBuilder::from_config(app, config).and_then(|builder| builder.title(&app.package_info().name).build());
+    match built {
         Ok(window) => Some(window),
         Err(err) => {
             log::error!("couldn't create the window: {err}");

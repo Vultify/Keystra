@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "start": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "start": "tauri dev",
     "release": "node scripts/build-release.mjs",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml && vitest run",
     "check:bindings": "node scripts/check-bindings.mjs"

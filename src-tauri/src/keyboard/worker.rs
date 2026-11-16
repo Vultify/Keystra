@@ -41,6 +41,9 @@ const RETRY_DELAYS: [Duration; 4] = [
     Duration::from_secs(30),
 ];
 
+/// USB errors this close together count as the same trouble, so their waits keep growing.
+const DROP_MEMORY: Duration = Duration::from_secs(60);
+
 /// The least time between two writes to the keyboard (applies or pattern saves), so quick repeated
 /// changes can never become a stream of writes. Applies that arrive meanwhile are merged into one.
 const MIN_WRITE_GAP: Duration = Duration::from_millis(500);
@@ -232,8 +235,10 @@ fn retry_delay(failures: usize) -> Duration {
 struct Skips {
     rejected: Option<CString>,
     cooldown: Option<Cooldown>,
-    /// USB errors since the keyboard last finished a job. Survives reconnects on purpose.
+    /// USB errors on a connected keyboard, each within DROP_MEMORY of the one before. Survives
+    /// reconnects on purpose, so a job that keeps failing can't loop.
     drops: usize,
+    last_drop: Option<Instant>,
 }
 
 impl Skips {
@@ -275,20 +280,18 @@ impl Skips {
     }
 
     /// Records a USB error on a connected keyboard. The first one reconnects right away (often a
-    /// glitch); repeats wait like failed connects, so a keyboard that keeps failing can't loop.
+    /// glitch); repeats soon after wait like failed connects, and a failed connect keeps escalating.
     fn record_drop(&mut self, path: CString, now: Instant) -> Option<Duration> {
-        self.drops += 1;
+        let recent = self.last_drop.is_some_and(|last| now.saturating_duration_since(last) < DROP_MEMORY);
+        self.drops = if recent { self.drops + 1 } else { 1 };
+        self.last_drop = Some(now);
         if self.drops < 2 {
             return None;
         }
-        let delay = retry_delay(self.drops - 1);
-        self.cooldown = Some(Cooldown { path, retry_at: now + delay, failures: 0 });
+        let failures = self.drops - 1;
+        let delay = retry_delay(failures);
+        self.cooldown = Some(Cooldown { path, retry_at: now + delay, failures });
         Some(delay)
-    }
-
-    /// A job finished on the keyboard, so earlier USB errors no longer count.
-    fn clear_drops(&mut self) {
-        self.drops = 0;
     }
 
     /// When a device that's cooling down may be tried again, if that's still ahead.
@@ -558,20 +561,16 @@ impl Worker {
     ) -> Result<T, KeyboardError> {
         let device = self.device.as_mut().ok_or(KeyboardError::NotConnected)?;
         let result = job(&mut device.transport, device.info.clone());
-        match &result {
-            Err(KeyboardError::Hid(message)) => {
-                log::warn!("USB error, dropping connection: {message}");
-                let path = device.path.clone();
-                self.disconnect();
-                if let Some(delay) = self.skips.record_drop(path, Instant::now()) {
-                    log::warn!("the keyboard keeps failing, waiting {}s before trying again", delay.as_secs());
-                }
-                // Windows won't announce anything if the keyboard is still plugged in, so look again
-                // soon. That look plans the next one for when any cooldown ends.
-                self.schedule.device_changed(Instant::now());
+        if let Err(KeyboardError::Hid(message)) = &result {
+            log::warn!("USB error, dropping connection: {message}");
+            let path = device.path.clone();
+            self.disconnect();
+            if let Some(delay) = self.skips.record_drop(path, Instant::now()) {
+                log::warn!("the keyboard keeps failing, waiting {}s before trying again", delay.as_secs());
             }
-            Ok(_) => self.skips.clear_drops(),
-            Err(_) => {}
+            // Windows won't announce anything if the keyboard is still plugged in, so look again
+            // soon. That look plans the next one for when any cooldown ends.
+            self.schedule.device_changed(Instant::now());
         }
         result
     }
@@ -638,8 +637,10 @@ mod tests {
         skips.clear_failures(); // the reconnect succeeds, but the drop still counts
         assert_eq!(skips.record_drop(path.clone(), now), Some(retry_delay(1)));
         assert_eq!(skips.update(Some(&path), now), Some(path.as_c_str()));
-        skips.clear_drops();
-        assert_eq!(skips.record_drop(path, now), None, "a finished job starts the count over");
+        // A failed connect after the wait keeps escalating instead of starting over.
+        assert_eq!(skips.record_failure(path.clone(), now), retry_delay(2));
+        let later = now + DROP_MEMORY;
+        assert_eq!(skips.record_drop(path, later), None, "a drop long after the last starts the count over");
     }
 
     #[test]

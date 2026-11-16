@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Keystra",
+  "productName": "Keystra Dev",
   "version": "../package.json",
-  "identifier": "com.vultify.keystra",
+  "identifier": "com.vultify.keystra.dev",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
