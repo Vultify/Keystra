@@ -3,7 +3,6 @@ import { useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useKeyboardSettings } from "@/hooks/use-keyboard-settings";
 import { useKeyboardStatus } from "@/hooks/use-keyboard-status";
 import { useProfiles } from "@/hooks/use-profiles";
 import { PAGES, type PageId } from "@/pages";
@@ -19,7 +18,6 @@ import { SettingsScreen } from "@/screens/settings-screen";
 export default function App() {
   const [activePage, setActivePage] = useState<PageId>("lighting");
   const status = useKeyboardStatus();
-  const settings = useKeyboardSettings(status);
   const list = useProfiles();
   const page = PAGES.find((p) => p.id === activePage) ?? PAGES[0];
   const editsProfiles = page.id !== "settings" && page.id !== "diagnostics";
@@ -44,7 +42,7 @@ export default function App() {
                 {page.id === "performance" && <PerformanceScreen status={status} list={list} />}
                 {page.id === "profiles" && <ProfilesScreen status={status} list={list} />}
                 {page.id === "settings" && <SettingsScreen />}
-                {page.id === "diagnostics" && <DiagnosticsScreen status={status} settings={settings} list={list} />}
+                {page.id === "diagnostics" && <DiagnosticsScreen status={status} list={list} />}
               </>
             )}
           </div>

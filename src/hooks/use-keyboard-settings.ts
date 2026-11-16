@@ -12,8 +12,8 @@ export type KeyboardSettings = {
 };
 
 /**
- * The keyboard's current settings for every screen: read once each time the keyboard connects,
- * then kept current by the event Keystra sends whenever it changes them.
+ * The keyboard's current settings for the Diagnostics page: read when it opens and each time the
+ * keyboard connects, then kept current by the event Keystra sends whenever it changes them.
  */
 export function useKeyboardSettings(status: KeyboardStatus | null): KeyboardSettings {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);

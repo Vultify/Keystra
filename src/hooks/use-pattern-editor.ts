@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAction } from "@/hooks/use-action";
-import { KEY_LIGHTS } from "@/lib/keyboard-layout";
+import { useKeySelection } from "@/hooks/use-key-selection";
 import {
   keepKeyboardPattern,
   paintLights,
@@ -42,7 +42,7 @@ export function usePatternEditor(slot: number | null, connected: boolean): Patte
   const { busy, error, run } = useAction("pattern");
   const [readings, setReadings] = useState<Record<number, PatternReading>>({});
   const [drafts, setDrafts] = useState<Record<number, Pattern>>({});
-  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  const { selected, toggle, selectAll, clear } = useKeySelection();
   const [attempt, setAttempt] = useState(0);
   // The pattern a running save is sending, which is what the keyboard will hold once it lands.
   const saving = useRef<Pattern | null>(null);
@@ -74,14 +74,6 @@ export function usePatternEditor(slot: number | null, connected: boolean): Patte
     [slot, readings],
   );
 
-  const toggle = useCallback((light: number) => {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (!next.delete(light)) next.add(light);
-      return next;
-    });
-  }, []);
-
   return {
     pattern,
     savedCopy: reading?.savedCopy ?? null,
@@ -90,8 +82,8 @@ export function usePatternEditor(slot: number | null, connected: boolean): Patte
     busy,
     error,
     toggle,
-    selectAll: () => setSelected(new Set(KEY_LIGHTS)),
-    clearSelection: () => setSelected(new Set()),
+    selectAll,
+    clearSelection: clear,
     paint: (color) => {
       if (pattern && selected.size > 0) setDraft(paintLights(pattern, selected, color));
     },

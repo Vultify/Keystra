@@ -80,7 +80,7 @@ pub fn write_pattern(transport: &mut dyn Transport, slot: u8, pattern: &Pattern)
         log::info!("pattern {} already matches; nothing written", slot + 1);
         return Ok(Pattern::from_bytes(&bytes));
     }
-    for attempt in 1..=2 {
+    let send = |transport: &mut dyn Transport| {
         for packet in 0..PATTERN_WRITE_PACKETS {
             let start = usize::from(packet) * PATTERN_CHUNK_LEN;
             let end = (start + PATTERN_CHUNK_LEN).min(PATTERN_BYTES);
@@ -88,14 +88,10 @@ pub fn write_pattern(transport: &mut dyn Transport, slot: u8, pattern: &Pattern)
             chunk.0[..end - start].copy_from_slice(&bytes[start..end]);
             transport::send_write(transport, Command::SetPattern { slot, packet, chunk })?;
         }
-        let saved = read_bytes(transport, slot)?;
-        if saved == bytes {
-            log::info!("saved pattern {}", slot + 1);
-            return Ok(Pattern::from_bytes(&saved));
-        }
-        log::warn!("the keyboard didn't keep pattern {} (attempt {attempt})", slot + 1);
-    }
-    Err(KeyboardError::NotConfirmed("pattern"))
+        Ok(())
+    };
+    let kept = |transport: &mut dyn Transport| Ok((read_bytes(transport, slot)? == bytes).then(|| Pattern::from_bytes(&bytes)));
+    transport::write_confirmed(transport, "pattern", send, kept)
 }
 
 #[cfg(test)]

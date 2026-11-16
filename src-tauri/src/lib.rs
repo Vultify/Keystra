@@ -34,9 +34,8 @@ pub fn run() {
             apply::follow_connections(app.handle());
             tray::create(app.handle())?;
             keyboard::KeyboardHandle::start(app.handle());
-            if window::started_hidden() {
-                window::hide_main(app.handle());
-            } else {
+            // A sign-in start stays in the tray; the window is created when first opened.
+            if !window::started_hidden() {
                 window::show_main(app.handle());
             }
             Ok(())

@@ -1,9 +1,9 @@
-//! The main window's life: it hides to the tray instead of closing, pauses its page while minimized,
-//! starts hidden when Windows launches Keystra at sign-in, and comes back to the front when asked.
+//! The main window's life: it's only created when first shown (so a sign-in start in the tray loads
+//! no page), hides to the tray instead of closing, and pauses its page while minimized.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use tauri::{AppHandle, Manager, Webview, WebviewWindow, Window, WindowEvent};
+use tauri::{AppHandle, Manager, Webview, WebviewWindow, WebviewWindowBuilder, Window, WindowEvent};
 
 const MAIN_WINDOW: &str = "main";
 
@@ -14,9 +14,9 @@ pub fn started_hidden() -> bool {
     std::env::args().any(|arg| arg == STARTED_HIDDEN_ARG)
 }
 
-/// Shows the main window and brings it to the front, even when it was hidden or minimized.
+/// Shows the main window and brings it to the front, creating it the first time.
 pub fn show_main(app: &AppHandle) {
-    let Some(window) = app.get_webview_window(MAIN_WINDOW) else { return };
+    let Some(window) = main_window(app) else { return };
     let webview: &Webview = window.as_ref();
     let shown = window
         .unminimize()
@@ -28,7 +28,22 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
-/// Hides the main window to the tray.
+/// The main window, built from its config entry (`create: false`) if it doesn't exist yet.
+fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+        return Some(window);
+    }
+    let config = app.config().app.windows.iter().find(|w| w.label == MAIN_WINDOW)?;
+    match WebviewWindowBuilder::from_config(app, config).and_then(|builder| builder.build()) {
+        Ok(window) => Some(window),
+        Err(err) => {
+            log::error!("couldn't create the window: {err}");
+            None
+        }
+    }
+}
+
+/// Hides the main window to the tray, if it has been opened.
 pub fn hide_main(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
         hide(&window);

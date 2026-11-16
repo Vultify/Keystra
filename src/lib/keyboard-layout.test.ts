@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { LIGHT_COUNT } from "./bindings/constants";
-import { KEYS, KEY_LIGHTS } from "./keyboard-layout";
+import { KEYS, KEY_LIGHTS, neighborKey } from "./keyboard-layout";
 
 describe("keyboard layout", () => {
   it("has the MX 8.2's 87 keys", () => {
@@ -23,5 +23,15 @@ describe("keyboard layout", () => {
     expect(lightOf("A")).toBe(9);
     expect(lightOf("△")).toBe(94);
     expect(lightOf("PAUSE")).toBe(96);
+  });
+
+  it("moves between keys with the arrow keys", () => {
+    const at = (label: string) => KEYS.findIndex((key) => key.label === label);
+    expect(neighborKey(at("W"), "right")).toBe(at("E"));
+    expect(neighborKey(at("W"), "left")).toBe(at("Q"));
+    expect(neighborKey(at("W"), "down")).toBe(at("S"));
+    expect(neighborKey(at("S"), "up")).toBe(at("W"));
+    expect(neighborKey(at("ESC"), "up")).toBe(at("ESC"));
+    expect(neighborKey(at("△"), "down")).toBe(at("▽"));
   });
 });

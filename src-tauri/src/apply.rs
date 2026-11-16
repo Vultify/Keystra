@@ -40,8 +40,8 @@ pub struct SaveOutcome {
 }
 
 /// Makes a profile the one in use and sends it to the keyboard. It's marked in use first, so an
-/// edit racing the switch sees it. Returns `None` when a newer change took this one's place.
-pub fn apply_profile(app: &AppHandle, id: u32) -> Result<Option<Snapshot>, CommandError> {
+/// edit racing the switch sees it. The screens learn what the keyboard holds from SETTINGS_EVENT.
+pub fn apply_profile(app: &AppHandle, id: u32) -> Result<(), CommandError> {
     let profiles = app.state::<ProfilesState>();
     let profile = profiles.get_for_apply(id)?;
     SWITCHES.fetch_add(1, Ordering::SeqCst);
@@ -65,7 +65,11 @@ pub fn save_profile(app: &AppHandle, profile: Profile) -> Result<SaveOutcome, Pr
         resend_active(app);
         return Ok(SaveOutcome { profile: saved, apply_error: None });
     }
-    Ok(SaveOutcome { profile: saved, apply_error: sent.err().map(|err| err.to_string()) })
+    let apply_error = sent.err().map(|err| err.to_string());
+    if let Some(err) = &apply_error {
+        log::warn!("saved \"{}\" but the keyboard didn't take it: {err}", saved.name);
+    }
+    Ok(SaveOutcome { profile: saved, apply_error })
 }
 
 /// Whether the keyboard is connected right now. False until the keyboard worker has started.
@@ -104,17 +108,18 @@ fn resend_active(app: &AppHandle) {
 }
 
 /// Sends a profile's settings and announces what the keyboard holds afterwards, even when a
-/// later step failed and only part of the profile got through.
-fn send(app: &AppHandle, profile: &Profile) -> Result<Option<Snapshot>, CommandError> {
+/// later step failed and only part of the profile got through. A newer change taking this one's
+/// place is not an error.
+fn send(app: &AppHandle, profile: &Profile) -> Result<(), CommandError> {
     let keyboard = app.state::<KeyboardHandle>();
     match keyboard.apply(ApplyRequest::from(profile)) {
         Ok(snapshot) => {
             app.state::<ProfilesState>().set_unsent(app, None);
             announce(app, &snapshot);
-            Ok(Some(snapshot))
+            Ok(())
         }
         // The newer change's caller announces what the keyboard ends up holding.
-        Err(KeyboardError::Superseded) => Ok(None),
+        Err(KeyboardError::Superseded) => Ok(()),
         Err(err) => {
             app.state::<ProfilesState>().set_unsent(app, Some(profile.id));
             if let Ok(snapshot) = keyboard.read_all() {

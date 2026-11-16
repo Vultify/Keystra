@@ -71,6 +71,49 @@ enum Job {
     DeviceChanged,
 }
 
+type ApplyReply = Sender<Result<Snapshot, KeyboardError>>;
+
+/// An apply with every apply that queued up behind it folded in.
+struct Merged {
+    request: ApplyRequest,
+    /// Callers to answer, oldest first; only the last one gets the result.
+    replies: Vec<ApplyReply>,
+    /// Other jobs that queued up meanwhile, to run after the apply in order.
+    later: Vec<Job>,
+}
+
+/// Folds queued applies into the first one (the newest wins wherever it sets a part) and sets
+/// every other job aside, keeping its order.
+fn merge_applies(first: ApplyRequest, reply: ApplyReply, queued: impl IntoIterator<Item = Job>) -> Merged {
+    let mut merged = Merged { request: first, replies: vec![reply], later: Vec::new() };
+    for job in queued {
+        match job {
+            Job::Apply(newer, newer_reply) => {
+                merged.request = merged.request.then(newer);
+                merged.replies.push(newer_reply);
+            }
+            other => merged.later.push(other),
+        }
+    }
+    merged
+}
+
+/// When the next write to the keyboard may start: at least MIN_WRITE_GAP after the last one.
+#[derive(Default)]
+struct WriteGap {
+    last: Option<Instant>,
+}
+
+impl WriteGap {
+    fn wait(&self, now: Instant) -> Duration {
+        self.last.map_or(Duration::ZERO, |last| MIN_WRITE_GAP.saturating_sub(now.saturating_duration_since(last)))
+    }
+
+    fn wrote(&mut self, at: Instant) {
+        self.last = Some(at);
+    }
+}
+
 /// Cheap handle the commands use to talk to the worker thread.
 #[derive(Clone)]
 pub struct KeyboardHandle {
@@ -97,7 +140,7 @@ impl KeyboardHandle {
             magcrate: MagCrateState::Closed,
             schedule: Schedule::new(watch.is_some(), Instant::now()),
             _watch: watch,
-            last_write: None,
+            gap: WriteGap::default(),
         };
         app.manage(Self { jobs, status });
         thread::Builder::new()
@@ -189,6 +232,8 @@ fn retry_delay(failures: usize) -> Duration {
 struct Skips {
     rejected: Option<CString>,
     cooldown: Option<Cooldown>,
+    /// USB errors since the keyboard last finished a job. Survives reconnects on purpose.
+    drops: usize,
 }
 
 impl Skips {
@@ -227,6 +272,23 @@ impl Skips {
 
     fn clear_failures(&mut self) {
         self.cooldown = None;
+    }
+
+    /// Records a USB error on a connected keyboard. The first one reconnects right away (often a
+    /// glitch); repeats wait like failed connects, so a keyboard that keeps failing can't loop.
+    fn record_drop(&mut self, path: CString, now: Instant) -> Option<Duration> {
+        self.drops += 1;
+        if self.drops < 2 {
+            return None;
+        }
+        let delay = retry_delay(self.drops - 1);
+        self.cooldown = Some(Cooldown { path, retry_at: now + delay, failures: 0 });
+        Some(delay)
+    }
+
+    /// A job finished on the keyboard, so earlier USB errors no longer count.
+    fn clear_drops(&mut self) {
+        self.drops = 0;
     }
 
     /// When a device that's cooling down may be tried again, if that's still ahead.
@@ -294,7 +356,7 @@ struct Worker {
     schedule: Schedule,
     /// Keeps Windows' device announcements coming for as long as the worker runs.
     _watch: Option<DeviceWatch>,
-    last_write: Option<Instant>,
+    gap: WriteGap,
 }
 
 impl Worker {
@@ -323,7 +385,6 @@ impl Worker {
                 let _ = reply.send(self.with_device(|transport, _| pattern::read_pattern(transport, slot)));
             }
             Job::SavePattern(slot, colors, reply) => {
-                self.wait_for_write_gap();
                 let result = self.write(|transport, _| pattern::write_pattern(transport, slot, &colors));
                 let _ = reply.send(result);
             }
@@ -332,19 +393,18 @@ impl Worker {
     }
 
     fn wait_for_write_gap(&self) {
-        if let Some(last) = self.last_write {
-            thread::sleep(MIN_WRITE_GAP.saturating_sub(last.elapsed()));
-        }
+        thread::sleep(self.gap.wait(Instant::now()));
     }
 
-    /// Runs a job that writes to the keyboard and records when, so the next write keeps its distance.
-    /// Every write job goes through here, after `wait_for_write_gap`.
+    /// Runs a job that writes to the keyboard, at least MIN_WRITE_GAP after the last write. Every
+    /// write job goes through here, so none can skip the gap.
     fn write<T>(
         &mut self,
         job: impl FnOnce(&mut dyn Transport, DeviceInfo) -> Result<T, KeyboardError>,
     ) -> Result<T, KeyboardError> {
+        self.wait_for_write_gap();
         let result = self.with_device(job);
-        self.last_write = Some(Instant::now());
+        self.gap.wrote(Instant::now());
         result
     }
 
@@ -472,21 +532,10 @@ impl Worker {
     /// Applies a request after the minimum gap since the last write, merged with any requests
     /// that queued up meanwhile. The newest caller gets the result; older ones learn theirs was
     /// replaced, so only one of them treats the apply as its own.
-    fn apply(&mut self, request: ApplyRequest, reply: Sender<Result<Snapshot, KeyboardError>>, inbox: &Receiver<Job>) {
+    fn apply(&mut self, request: ApplyRequest, reply: ApplyReply, inbox: &Receiver<Job>) {
+        // Waiting first lets requests made during the gap join this apply.
         self.wait_for_write_gap();
-        let mut request = request;
-        let mut replies = vec![reply];
-        // Other jobs that queued up meanwhile run after the apply, in order.
-        let mut later = Vec::new();
-        while let Ok(job) = inbox.try_recv() {
-            match job {
-                Job::Apply(newer, newer_reply) => {
-                    request = request.then(newer);
-                    replies.push(newer_reply);
-                }
-                other => later.push(other),
-            }
-        }
+        let Merged { request, mut replies, later } = merge_applies(request, reply, std::iter::from_fn(|| inbox.try_recv().ok()));
         if replies.len() > 1 {
             log::info!("merged {} quick changes into one apply", replies.len());
         }
@@ -509,11 +558,20 @@ impl Worker {
     ) -> Result<T, KeyboardError> {
         let device = self.device.as_mut().ok_or(KeyboardError::NotConnected)?;
         let result = job(&mut device.transport, device.info.clone());
-        if let Err(KeyboardError::Hid(message)) = &result {
-            log::warn!("USB error, dropping connection: {message}");
-            self.disconnect();
-            // Windows won't announce anything if the keyboard is still plugged in, so look again soon.
-            self.schedule.device_changed(Instant::now());
+        match &result {
+            Err(KeyboardError::Hid(message)) => {
+                log::warn!("USB error, dropping connection: {message}");
+                let path = device.path.clone();
+                self.disconnect();
+                if let Some(delay) = self.skips.record_drop(path, Instant::now()) {
+                    log::warn!("the keyboard keeps failing, waiting {}s before trying again", delay.as_secs());
+                }
+                // Windows won't announce anything if the keyboard is still plugged in, so look again
+                // soon. That look plans the next one for when any cooldown ends.
+                self.schedule.device_changed(Instant::now());
+            }
+            Ok(_) => self.skips.clear_drops(),
+            Err(_) => {}
         }
         result
     }
@@ -537,6 +595,52 @@ impl Worker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn writes_keep_half_a_second_apart() {
+        let start = Instant::now();
+        let mut gap = WriteGap::default();
+        assert_eq!(gap.wait(start), Duration::ZERO, "the first write never waits");
+        gap.wrote(start);
+        assert_eq!(gap.wait(start + Duration::from_millis(100)), Duration::from_millis(400));
+        assert_eq!(gap.wait(start + Duration::from_millis(900)), Duration::ZERO);
+    }
+
+    #[test]
+    fn queued_applies_become_one_and_other_jobs_keep_their_order() {
+        let (first_reply, first_answer) = mpsc::channel();
+        let (second_reply, _) = mpsc::channel();
+        let (third_reply, _) = mpsc::channel();
+        let (read_reply, _) = mpsc::channel();
+        let queued = vec![
+            Job::Apply(ApplyRequest { polling_rate_hz: Some(8000), ..ApplyRequest::default() }, second_reply),
+            Job::ReadAll(read_reply),
+            Job::DeviceChanged,
+            Job::Apply(ApplyRequest { onboard_slot: Some(2), ..ApplyRequest::default() }, third_reply),
+        ];
+        let first = ApplyRequest { onboard_slot: Some(1), polling_rate_hz: Some(1000), lighting: None };
+        let merged = merge_applies(first, first_reply, queued);
+        assert_eq!(merged.request.onboard_slot, Some(2));
+        assert_eq!(merged.request.polling_rate_hz, Some(8000));
+        assert_eq!(merged.replies.len(), 3);
+        assert!(matches!(merged.later.as_slice(), [Job::ReadAll(_), Job::DeviceChanged]));
+        // The oldest caller is answered first, so only the newest one is left holding the result.
+        merged.replies[0].send(Err(KeyboardError::Superseded)).unwrap();
+        assert!(matches!(first_answer.recv().unwrap(), Err(KeyboardError::Superseded)));
+    }
+
+    #[test]
+    fn a_keyboard_that_keeps_dropping_backs_off() {
+        let path = CString::new("kb").unwrap();
+        let now = Instant::now();
+        let mut skips = Skips::default();
+        assert_eq!(skips.record_drop(path.clone(), now), None, "a single glitch reconnects at once");
+        skips.clear_failures(); // the reconnect succeeds, but the drop still counts
+        assert_eq!(skips.record_drop(path.clone(), now), Some(retry_delay(1)));
+        assert_eq!(skips.update(Some(&path), now), Some(path.as_c_str()));
+        skips.clear_drops();
+        assert_eq!(skips.record_drop(path, now), None, "a finished job starts the count over");
+    }
 
     #[test]
     fn status_serializes_for_the_screens() {

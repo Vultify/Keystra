@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { KeyboardSettings } from "@/hooks/use-keyboard-settings";
+import { useKeyboardSettings } from "@/hooks/use-keyboard-settings";
 import { formatFirmware, MAX_LEVEL, onboardSlotLabel, toHex, type KeyboardStatus, type Snapshot } from "@/lib/keyboard";
 import { describeLighting } from "@/lib/lighting";
 import type { ProfileList } from "@/lib/profiles";
@@ -51,16 +51,8 @@ function LightingColor({ color }: { color: string | null }) {
 
 // Shows exactly what Keystra reads from the keyboard, parsed and as raw bytes, for checking
 // against MagCrate and the protocol notes.
-export function DiagnosticsScreen({
-  status,
-  settings,
-  list,
-}: {
-  status: KeyboardStatus | null;
-  settings: KeyboardSettings;
-  list: ProfileList | null;
-}) {
-  const { snapshot, reading, error, refresh } = settings;
+export function DiagnosticsScreen({ status, list }: { status: KeyboardStatus | null; list: ProfileList | null }) {
+  const { snapshot, reading, error, refresh } = useKeyboardSettings(status);
   const connected = status?.state === "connected";
 
   return (

@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { CheckIcon, HistoryIcon, RefreshCwIcon, SaveIcon, UndoIcon } from "lucide-react";
+import { CheckIcon, HistoryIcon, RefreshCwIcon, SaveIcon, UndoIcon, UsbIcon } from "lucide-react";
 
 import { ErrorAlert } from "@/components/notices";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import type { PatternEditor } from "@/hooks/use-pattern-editor";
@@ -18,6 +19,30 @@ export function PatternEditorCard({ number, editor, connected }: { number: numbe
   const [custom, setCustom] = useState("#7A30F8");
   const count = editor.selected.size;
   const canPaint = editor.pattern !== null && count > 0;
+
+  // Patterns live on the keyboard, so there's nothing to show or paint until it's plugged in.
+  if (editor.pattern === null && !connected) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Paint pattern {number}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Empty className="border-0 p-6">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <UsbIcon />
+              </EmptyMedia>
+              <EmptyTitle>Plug in your keyboard to paint</EmptyTitle>
+              <EmptyDescription>
+                Pattern {number} is saved on the keyboard itself. Connect it with the USB cable to see and change it.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>

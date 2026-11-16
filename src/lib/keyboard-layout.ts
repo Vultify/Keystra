@@ -82,3 +82,26 @@ export const KEY_LIGHTS: number[] = KEYS.map((key) => key.light);
 export function keyName(key: Key): string {
   return key.label === "" ? "Space" : key.label;
 }
+
+export type ArrowDirection = "left" | "right" | "up" | "down";
+
+/**
+ * The key next to `KEYS[index]` in a direction, for moving between keys with the arrow keys:
+ * along the row for left and right, the nearest key in the row above or below for up and down.
+ * Returns the same index at the board's edge.
+ */
+export function neighborKey(index: number, direction: ArrowDirection): number {
+  const key = KEYS[index];
+  const center = (k: Key) => k.x + k.w / 2;
+  const indexes = KEYS.map((_, i) => i);
+  if (direction === "left" || direction === "right") {
+    const row = indexes.filter((i) => KEYS[i].y === key.y).sort((a, b) => KEYS[a].x - KEYS[b].x);
+    const next = row.indexOf(index) + (direction === "right" ? 1 : -1);
+    return row[next] ?? index;
+  }
+  const rows = [...new Set(KEYS.map((k) => k.y))].sort((a, b) => a - b);
+  const targetY = rows[rows.indexOf(key.y) + (direction === "down" ? 1 : -1)];
+  if (targetY === undefined) return index;
+  const distance = (i: number) => Math.abs(center(KEYS[i]) - center(key));
+  return indexes.filter((i) => KEYS[i].y === targetY).reduce((best, i) => (distance(i) < distance(best) ? i : best));
+}

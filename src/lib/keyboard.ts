@@ -1,18 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { SETTINGS_EVENT, STATUS_EVENT } from "./bindings/constants";
+import { GERMAN_DEVICE_ID, SETTINGS_EVENT, STATUS_EVENT } from "./bindings/constants";
 import type { KeyboardStatus } from "./bindings/KeyboardStatus";
 import type { Snapshot } from "./bindings/Snapshot";
 
 // Types and constants are generated from the Rust side by `cargo test` (see src/lib/bindings).
 export { MAX_LEVEL } from "./bindings/constants";
-import { GERMAN_DEVICE_ID } from "./bindings/constants";
-export type { DeviceInfo } from "./bindings/DeviceInfo";
-export type { Exchange } from "./bindings/Exchange";
 export type { KeyboardStatus } from "./bindings/KeyboardStatus";
-export type { Lighting } from "./bindings/Lighting";
-export type { MagCrateState } from "./bindings/MagCrateState";
 export type { Snapshot } from "./bindings/Snapshot";
 
 export function getKeyboardStatus(): Promise<KeyboardStatus> {

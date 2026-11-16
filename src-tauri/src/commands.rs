@@ -23,7 +23,7 @@ pub async fn read_keyboard(keyboard: State<'_, KeyboardHandle>) -> Result<Snapsh
 
 /// Makes a profile the one in use and sends it to the keyboard.
 #[tauri::command]
-pub async fn apply_profile(app: AppHandle, id: u32) -> Result<Option<Snapshot>, CommandError> {
+pub async fn apply_profile(app: AppHandle, id: u32) -> Result<(), CommandError> {
     blocking(move || apply::apply_profile(&app, id)).await
 }
 
@@ -116,14 +116,14 @@ where
 
 /// Whether Windows starts Keystra (in the tray) when you sign in.
 #[tauri::command]
-pub fn start_with_windows() -> Result<bool, CommandError> {
-    Ok(startup::is_enabled()?)
+pub fn start_with_windows(app: AppHandle) -> Result<bool, CommandError> {
+    Ok(startup::is_enabled(&app.package_info().name)?)
 }
 
 /// Turns starting with Windows on or off, then reports what Windows now has.
 #[tauri::command]
-pub fn set_start_with_windows(enabled: bool) -> Result<bool, CommandError> {
-    Ok(startup::set_enabled(enabled)?)
+pub fn set_start_with_windows(app: AppHandle, enabled: bool) -> Result<bool, CommandError> {
+    Ok(startup::set_enabled(&app.package_info().name, enabled)?)
 }
 
 /// Reads one of the keyboard's per-key color patterns. The first time Keystra sees a pattern it keeps a copy.

@@ -73,43 +73,35 @@ pub fn apply_settings(
 
     let before = read_settings(transport, info.clone())?;
     if let Some(slot) = request.onboard_slot.filter(|&slot| slot != before.onboard_slot) {
-        write_confirmed(transport, Command::SetProfile(slot), "onboard profile", |t| {
+        write_setting(transport, Command::SetProfile(slot), "onboard profile", |t| {
             Ok(settings::parse_onboard_slot(&transport::exchange(t, Command::GetProfile)?.reply)? == slot)
         })?;
     }
     if let (Some(hz), Some(code)) = (request.polling_rate_hz, polling_code)
         && before.polling_rate != Some(hz)
     {
-        write_confirmed(transport, Command::SetPollingRate(code), "polling rate", |t| {
+        write_setting(transport, Command::SetPollingRate(code), "polling rate", |t| {
             Ok(settings::parse_polling_rate(&transport::exchange(t, Command::GetPollingRate)?.reply)? == Some(hz))
         })?;
     }
     if let (Some(wanted), Some(bytes)) = (&request.lighting, lighting_bytes)
         && !before.lighting.matches(wanted)
     {
-        write_confirmed(transport, Command::SetLighting(bytes), "lighting", |t| {
+        write_setting(transport, Command::SetLighting(bytes), "lighting", |t| {
             Ok(lighting::parse_lighting(&transport::exchange(t, Command::GetLighting)?.reply)?.matches(wanted))
         })?;
     }
     read_settings(transport, info)
 }
 
-/// Sends a write, then reads it back. Resends once if the keyboard didn't keep it, never more.
-fn write_confirmed(
+/// Sends one setting write and confirms it with `kept`, resending once at most.
+fn write_setting(
     transport: &mut dyn Transport,
     command: Command,
     what: &'static str,
-    mut confirmed: impl FnMut(&mut dyn Transport) -> Result<bool, KeyboardError>,
+    mut kept: impl FnMut(&mut dyn Transport) -> Result<bool, KeyboardError>,
 ) -> Result<(), KeyboardError> {
-    for attempt in 1..=2 {
-        transport::send_write(transport, command)?;
-        if confirmed(transport)? {
-            log::info!("changed the {what}");
-            return Ok(());
-        }
-        log::warn!("the keyboard didn't keep the new {what} (attempt {attempt})");
-    }
-    Err(KeyboardError::NotConfirmed(what))
+    transport::write_confirmed(transport, what, |t| transport::send_write(t, command), |t| Ok(kept(t)?.then_some(())))
 }
 
 #[cfg(test)]

@@ -76,6 +76,29 @@ pub fn send_write(transport: &mut dyn Transport, command: Command) -> Result<(),
     Ok(())
 }
 
+/// A write is sent at most this many times: once, plus one resend if the read-back shows the
+/// keyboard didn't keep it. Writes land in the keyboard's memory, so they never stream.
+const WRITE_ATTEMPTS: usize = 2;
+
+/// Sends a write with `send`, then reads it back with `confirmed`, which returns what the keyboard
+/// holds once it matches. Every write to the keyboard goes through here.
+pub fn write_confirmed<T>(
+    transport: &mut dyn Transport,
+    what: &'static str,
+    mut send: impl FnMut(&mut dyn Transport) -> Result<(), KeyboardError>,
+    mut confirmed: impl FnMut(&mut dyn Transport) -> Result<Option<T>, KeyboardError>,
+) -> Result<T, KeyboardError> {
+    for attempt in 1..=WRITE_ATTEMPTS {
+        send(transport)?;
+        if let Some(kept) = confirmed(transport)? {
+            log::info!("changed the {what}");
+            return Ok(kept);
+        }
+        log::warn!("the keyboard didn't keep the new {what} (attempt {attempt})");
+    }
+    Err(KeyboardError::NotConfirmed(what))
+}
+
 /// Sends a read and returns the reply, retrying when the reply belongs to something else.
 pub fn exchange(transport: &mut dyn Transport, command: Command) -> Result<Exchange, KeyboardError> {
     if command.is_write() {

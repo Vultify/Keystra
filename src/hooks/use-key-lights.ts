@@ -9,10 +9,15 @@ const FRAME_MS = 33;
 
 type LightLayers = RefObject<(SVGElement | null)[]>[];
 
+/** Whether the system asks for less motion (Windows' "Animation effects" off). */
+function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 /**
  * Draws each key's light by writing straight onto its SVG elements (one per layer, in key order),
  * which React never sets, so no stale frame can stick. While `playing`, moving effects redraw about
- * 30 times a second (never when hidden or with reduced motion); otherwise they rest on `restAt`.
+ * 30 times a second; when paused or with reduced motion they rest on `restAt`.
  */
 export function useKeyLights(
   preview: EffectPreview,
@@ -24,6 +29,7 @@ export function useKeyLights(
   const currentBases = useRef(bases);
   const currentLayers = useRef(layers);
   currentLayers.current = layers;
+  const still = !playing || prefersReducedMotion();
 
   const paint = useCallback(
     (seconds: number) => {
@@ -47,13 +53,13 @@ export function useKeyLights(
 
   useLayoutEffect(() => {
     currentBases.current = bases;
-    const seconds = !playing && restAt !== undefined ? restAt : (performance.now() - start.current) / 1000;
+    const seconds = still && restAt !== undefined ? restAt : (performance.now() - start.current) / 1000;
     paint(seconds);
-  }, [bases, paint, playing, restAt]);
+  }, [bases, paint, still, restAt]);
 
   // A layout effect, so an old loop is always stopped before a new effect's first frame is drawn.
   useLayoutEffect(() => {
-    if (!playing || !preview.moving || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (still || !preview.moving) return;
     // Playing a resting picture picks up from its rest frame instead of jumping.
     if (restAt !== undefined) start.current = performance.now() - restAt * 1000;
     let frame = 0;
@@ -66,5 +72,5 @@ export function useKeyLights(
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
-  }, [preview, paint, playing, restAt]);
+  }, [preview, paint, still, restAt]);
 }

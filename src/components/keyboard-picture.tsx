@@ -1,11 +1,11 @@
-import { useMemo, useRef, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 
 import { useKeyLights } from "@/hooks/use-key-lights";
 import { effectGuide } from "@/lib/effect-guide";
 import { effectPreview } from "@/lib/effect-motion";
-import { baseColor } from "@/lib/key-lights";
+import { baseColor, restFrame } from "@/lib/key-lights";
 import { MAX_LEVEL } from "@/lib/keyboard";
-import { BOARD_HEIGHT, BOARD_WIDTH, KEYS, keyName, type Key } from "@/lib/keyboard-layout";
+import { BOARD_HEIGHT, BOARD_WIDTH, KEYS, keyName, neighborKey, type ArrowDirection, type Key } from "@/lib/keyboard-layout";
 import { lightingMode } from "@/lib/lighting";
 import type { Pattern } from "@/lib/patterns";
 import type { LightingSettings } from "@/lib/profiles";
@@ -57,6 +57,21 @@ type Editing = {
   onToggle: (light: number) => void;
 };
 
+const ARROWS: Record<string, ArrowDirection> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
+
+/** Whether an element is at least partly on screen, so animation can stop once it's scrolled away. */
+function useOnScreen<T extends Element>(ref: RefObject<T | null>) {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const observer = new IntersectionObserver(([entry]) => setOn(entry.isIntersecting));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+  return { ref, on };
+}
+
 // A drawn MX 8.2 lit the way the lighting settings describe: light shows around each keycap's
 // edge and through its top legends, like the real board, playing a looping example of the effect.
 // With `editing`, keys can be clicked to select them for painting a pattern.
@@ -75,19 +90,32 @@ export function KeyboardPicture({
   const { mode: effect, direction, speed, rainbow, color } = lighting;
   const preview = useMemo(() => effectPreview({ mode: effect, direction, speed, rainbow }), [effect, direction, speed, rainbow]);
   const bases = useMemo(() => KEYS.map(baseColor({ mode: effect, rainbow, color }, pattern)), [effect, rainbow, color, pattern]);
+  const restAt = useMemo(() => restFrame(preview), [preview]);
   const glows = useRef<(SVGRectElement | null)[]>([]);
   const legends = useRef<(SVGTextElement | null)[]>([]);
-  useKeyLights(preview, bases, [glows, legends]);
+  const visible = useOnScreen(useRef<SVGSVGElement>(null));
+  useKeyLights(preview, bases, [glows, legends], { playing: visible.on, restAt });
 
-  const onKey = (event: KeyboardEvent, light: number) => {
+  // While editing, the keys are one Tab stop and the arrow keys move between them.
+  const [focused, setFocused] = useState(0);
+  const targets = useRef<(SVGRectElement | null)[]>([]);
+  const onKey = (event: KeyboardEvent, index: number) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      editing?.onToggle(light);
+      editing?.onToggle(KEYS[index].light);
+      return;
     }
+    const direction = ARROWS[event.key];
+    if (!direction) return;
+    event.preventDefault();
+    const next = neighborKey(index, direction);
+    setFocused(next);
+    targets.current[next]?.focus();
   };
 
   return (
     <svg
+      ref={visible.ref}
       viewBox={`${-PAD} ${-PAD} ${BOARD_WIDTH * UNIT + PAD * 2} ${BOARD_HEIGHT * UNIT + PAD * 2}`}
       className="w-full select-none"
       style={{ fontFamily: "var(--font-sans)" }}
@@ -164,23 +192,27 @@ export function KeyboardPicture({
 
       {/* While editing a pattern: a click target over each key, outlined when selected. */}
       {editing &&
-        KEYS.map((k) => {
+        KEYS.map((k, i) => {
           const selected = editing.selected.has(k.light);
           return (
             <rect
               key={k.light}
+              ref={(element) => {
+                targets.current[i] = element;
+              }}
               {...box(k, -1)}
               rx={7}
               role="checkbox"
               aria-checked={selected}
               aria-label={keyName(k)}
-              tabIndex={0}
+              tabIndex={i === focused ? 0 : -1}
               className="cursor-pointer outline-none focus-visible:stroke-ring"
               fill="transparent"
               stroke={selected ? "var(--primary)" : "transparent"}
               strokeWidth={selected ? 3 : 2}
               onClick={() => editing.onToggle(k.light)}
-              onKeyDown={(event) => onKey(event, k.light)}
+              onFocus={() => setFocused(i)}
+              onKeyDown={(event) => onKey(event, i)}
             />
           );
         })}

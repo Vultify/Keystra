@@ -5,7 +5,6 @@ import { PROFILES_EVENT } from "./bindings/constants";
 import type { Profile } from "./bindings/Profile";
 import type { ProfileList } from "./bindings/ProfileList";
 import type { SaveOutcome } from "./bindings/SaveOutcome";
-import type { Snapshot } from "./bindings/Snapshot";
 
 // Types and constants are generated from the Rust side by `cargo test` (see src/lib/bindings).
 export { MAX_NAME_LEN, ONBOARD_SLOTS, POLLING_RATES } from "./bindings/constants";
@@ -53,11 +52,10 @@ export function deleteProfile(id: number): Promise<void> {
 
 /**
  * Makes a profile the one in use and sends its onboard profile, polling rate and lighting to the
- * keyboard. Resolves to `null` when a newer change took its place; the new settings also arrive
- * through `onKeyboardSettings`.
+ * keyboard. What the keyboard holds afterwards arrives through `onKeyboardSettings`.
  */
-export function applyProfile(id: number): Promise<Snapshot | null> {
-  return invoke<Snapshot | null>("apply_profile", { id });
+export function applyProfile(id: number): Promise<void> {
+  return invoke<void>("apply_profile", { id });
 }
 
 /** Reads the keyboard and saves its lighting, polling rate and onboard profile into a profile. */

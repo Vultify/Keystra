@@ -37,8 +37,10 @@ You need Node.js 24, Rust (stable, MSVC), and the Visual Studio C++ Build Tools.
 
 ```bash
 npm install
-npm run tauri dev
+npm start
 ```
+
+`npm start` runs a development build named "Keystra Dev". It has its own settings folder (`%APPDATA%\com.vultify.keystra.dev`), its own start-with-Windows entry and its own single-instance lock, so it never touches an installed Keystra or its profiles.
 
 To run the tests (this also regenerates the screens' TypeScript types in `src/lib/bindings` from the Rust types):
 
@@ -55,8 +57,10 @@ npm run check:bindings
 To build the Windows installer:
 
 ```bash
-npm run tauri build
+npm run release
 ```
+
+This rewrites the builder's home folder out of the file paths Rust stores inside the app, then checks the finished app and installer and stops if that folder's name is still in them.
 
 ## Tech
 

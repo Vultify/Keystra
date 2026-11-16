@@ -13,14 +13,14 @@ import { useActiveProfile } from "@/hooks/use-active-profile";
 import { usePatternEditor } from "@/hooks/use-pattern-editor";
 import { effectGuide } from "@/lib/effect-guide";
 import { isGermanBoard, type KeyboardStatus } from "@/lib/keyboard";
-import { lightingMode, OFFERED_LIGHTING_MODES } from "@/lib/lighting";
+import { carriedOption, lightingMode, OFFERED_LIGHTING_MODES } from "@/lib/lighting";
 import type { LightingSettings, Profile, ProfileList } from "@/lib/profiles";
 
 /** How long the color picker waits after the last change before sending it. */
 const COLOR_SETTLE_MS = 400;
 
-// Edits the active profile's lighting: changes show on the picture at once and reach the keyboard
-// when a control is released. The Custom effect also paints its saved per-key pattern.
+// Edits the active profile's lighting: a pick shows on the picture and goes to the keyboard at once
+// (the color picker waits until it settles). The Custom effect also paints its saved pattern.
 export function LightingScreen({ status, list }: { status: KeyboardStatus | null; list: ProfileList | null }) {
   const { profile, commit, commitLater, saving, problem } = useActiveProfile(list);
   const connected = status?.state === "connected";
@@ -39,8 +39,7 @@ export function LightingScreen({ status, list }: { status: KeyboardStatus | null
 
   function pickEffect(next: number) {
     if (next === lighting.mode) return;
-    const options = lightingMode(next)?.options.length ?? 0;
-    commit(withLighting({ mode: next, direction: lighting.direction < options ? lighting.direction : 0 }));
+    commit(withLighting({ mode: next, direction: carriedOption(lighting.mode, lighting.direction, next) }));
   }
 
   // The native color picker reports every drag step, so wait for it to settle before sending.
@@ -49,7 +48,7 @@ export function LightingScreen({ status, list }: { status: KeyboardStatus | null
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="@container flex flex-col gap-6">
       <KeyboardNotice status={status} />
       <ErrorAlert title="That change didn't go through" message={problem} />
       {isGermanBoard(status) && (
@@ -78,7 +77,11 @@ export function LightingScreen({ status, list }: { status: KeyboardStatus | null
             <KeyboardPicture
               lighting={lighting}
               pattern={editor.pattern}
-              editing={patternSlot === null ? undefined : { selected: editor.selected, onToggle: editor.toggle }}
+              editing={
+                patternSlot === null || editor.pattern === null
+                  ? undefined
+                  : { selected: editor.selected, onToggle: editor.toggle }
+              }
             />
           </div>
         </CardContent>
@@ -86,7 +89,8 @@ export function LightingScreen({ status, list }: { status: KeyboardStatus | null
 
       {patternSlot !== null && <PatternEditorCard number={patternSlot + 1} editor={editor} connected={connected} />}
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      {/* Side by side whenever the space next to the sidebar allows, so Adjust stays in view. */}
+      <div className="grid items-start gap-6 @xl:grid-cols-[minmax(0,1fr)_17rem] @3xl:grid-cols-[minmax(0,1fr)_20rem]">
         <Card>
           <CardHeader>
             <CardTitle>Effect</CardTitle>
@@ -100,7 +104,7 @@ export function LightingScreen({ status, list }: { status: KeyboardStatus | null
           </CardContent>
         </Card>
 
-        <Card className="lg:sticky lg:top-0">
+        <Card className="@xl:sticky @xl:top-0">
           <CardHeader>
             <CardTitle>Adjust</CardTitle>
             <CardDescription>

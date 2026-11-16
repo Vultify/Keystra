@@ -16,6 +16,17 @@ export const OFFERED_LIGHTING_MODES: [number, LightingMode][] = Object.entries(L
   .filter(([, mode]) => mode.offered)
   .map(([id, mode]) => [Number(id), mode]);
 
+/**
+ * The option to use after switching from one effect to another: the same option by name when the
+ * new effect has it (Left stays Left), otherwise its first option. Indexes mean different things
+ * per effect, so they're never carried over as numbers.
+ */
+export function carriedOption(fromMode: number, fromOption: number, toMode: number): number {
+  const name = LIGHTING_MODES[fromMode]?.options[fromOption];
+  const index = name === undefined ? -1 : (LIGHTING_MODES[toMode]?.options.indexOf(name) ?? -1);
+  return Math.max(index, 0);
+}
+
 export type LightingDescription = {
   effect: string;
   /** "Rainbow", a "#RRGGBB" color, or `null` for effects that pick their own colors. */

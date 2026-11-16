@@ -1,24 +1,22 @@
 //! Reads and writes the profiles file. Only Rust touches it; the screens and the tray (and later
 //! the game watcher) all go through this store.
 
-use std::fs;
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
 use super::error::ProfileError;
-use crate::files;
+use crate::files::{self, LoadError, Upgrade};
 use super::model::{MAX_NAME_LEN, Profile, ProfileFile, ProfileList, SCHEMA_VERSION, same_name};
 
 pub const FILE_NAME: &str = "profiles.json";
 
 /// Upgrade steps for older saved formats: `UPGRADES[n]` turns a version n + 1 file into version
 /// n + 2. The length is tied to SCHEMA_VERSION, so a version bump without its step doesn't build.
-const UPGRADES: [fn(Value) -> Result<Value, ProfileError>; SCHEMA_VERSION as usize - 1] = [v1_to_v2];
+const UPGRADES: [Upgrade; SCHEMA_VERSION as usize - 1] = [v1_to_v2];
 
 /// Format 2 added `activeId`, which loads as "none" when missing, so nothing needs to move.
-fn v1_to_v2(raw: Value) -> Result<Value, ProfileError> {
+fn v1_to_v2(raw: Value) -> Result<Value, String> {
     Ok(raw)
 }
 
@@ -220,37 +218,16 @@ fn find_mut(file: &mut ProfileFile, id: u32) -> Result<&mut Profile, ProfileErro
 
 /// Reads the file, or `None` if it doesn't exist yet. Only bytes that aren't JSON count as `Corrupt`.
 fn read_file(path: &Path) -> Result<Option<ProfileFile>, ProfileError> {
-    let bytes = match fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
-        Err(err) => return Err(ProfileError::Invalid(format!("couldn't read {FILE_NAME} ({err})"))),
-    };
-    let raw: Value = serde_json::from_slice(&bytes).map_err(|err| ProfileError::Corrupt(err.to_string()))?;
-    let file = upgrade(raw)?;
-    file.validate()
-        .map_err(|err| ProfileError::Invalid(format!("the profiles file has a setting this version can't use ({err})")))?;
-    Ok(Some(file))
-}
-
-/// Turns any supported saved format into the current one by running its upgrade steps in order.
-fn upgrade(mut raw: Value) -> Result<ProfileFile, ProfileError> {
-    let version = raw
-        .get("schemaVersion")
-        .and_then(Value::as_u64)
-        .and_then(|v| u32::try_from(v).ok())
-        .filter(|&v| v > 0)
-        .ok_or_else(|| ProfileError::Invalid("the profiles file has no usable schemaVersion".into()))?;
-    if version > SCHEMA_VERSION {
-        return Err(ProfileError::TooNew(version));
+    let file: Option<ProfileFile> = files::load_versioned(path, SCHEMA_VERSION, &UPGRADES).map_err(|err| match err {
+        LoadError::NotJson(reason) => ProfileError::Corrupt(reason),
+        LoadError::TooNew(version) => ProfileError::TooNew(version),
+        LoadError::Unusable(reason) => ProfileError::Invalid(reason),
+    })?;
+    if let Some(file) = &file {
+        file.validate()
+            .map_err(|err| ProfileError::Invalid(format!("the profiles file has a setting this version can't use ({err})")))?;
     }
-    for step in UPGRADES.iter().skip(version as usize - 1) {
-        raw = step(raw)?;
-    }
-    if let Some(fields) = raw.as_object_mut() {
-        fields.insert("schemaVersion".into(), SCHEMA_VERSION.into());
-    }
-    serde_json::from_value(raw)
-        .map_err(|err| ProfileError::Invalid(format!("the profiles file isn't laid out as expected ({err})")))
+    Ok(file)
 }
 
 /// Writes and flushes a temporary file, then swaps it in, so neither a crash nor a power cut
@@ -262,43 +239,23 @@ fn write_file(path: &Path, file: &ProfileFile) -> Result<(), ProfileError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A fresh folder under the system temp dir for one test, removed when the test ends.
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new(test: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!("keystra-test-{test}-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&dir);
-            fs::create_dir_all(&dir).unwrap();
-            Self(dir)
-        }
-
-        fn file(&self) -> PathBuf {
-            self.0.join(FILE_NAME)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    use crate::files::TempDir;
+    use std::fs;
 
     #[test]
     fn first_run_creates_a_default_profile_on_disk() {
         let dir = TempDir::new("first-run");
-        let store = ProfileStore::open(dir.file());
+        let store = ProfileStore::open(dir.join(FILE_NAME));
         assert_eq!(store.profiles().len(), 1);
         assert_eq!(store.profiles()[0].name, "Default");
-        assert!(dir.file().exists());
+        assert!(dir.join(FILE_NAME).exists());
         assert!(store.list().read_only.is_none());
     }
 
     #[test]
     fn changes_survive_a_reopen() {
         let dir = TempDir::new("reopen");
-        let mut store = ProfileStore::open(dir.file());
+        let mut store = ProfileStore::open(dir.join(FILE_NAME));
         let gaming = store.create("Gaming", Some(1)).unwrap();
         store.rename(gaming.id, "FPS").unwrap();
         let mut edited = store.get(gaming.id).unwrap().clone();
@@ -306,7 +263,7 @@ mod tests {
         edited.linked_apps.push("game.exe".into());
         store.update(edited).unwrap();
 
-        let reopened = ProfileStore::open(dir.file());
+        let reopened = ProfileStore::open(dir.join(FILE_NAME));
         let fps = reopened.get(gaming.id).unwrap();
         assert_eq!(fps.name, "FPS");
         assert_eq!(fps.polling_rate_hz, 8000);
@@ -327,8 +284,8 @@ mod tests {
               "lighting": { "mode": 1, "brightness": 3, "speed": 1, "direction": 0, "rainbow": false, "color": "#FAFFFA" } }
           ]
         }"##;
-        fs::write(dir.file(), v1).unwrap();
-        let store = ProfileStore::open(dir.file());
+        fs::write(dir.join(FILE_NAME), v1).unwrap();
+        let store = ProfileStore::open(dir.join(FILE_NAME));
         assert!(store.list().read_only.is_none());
         let names: Vec<_> = store.profiles().iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, ["Default", "Vultify"]);
@@ -351,8 +308,8 @@ mod tests {
               "lighting": { "mode": 4, "brightness": 4, "speed": 2, "direction": 1, "rainbow": false, "color": "#FF0000" } }
           ]
         }"##;
-        fs::write(dir.file(), v2).unwrap();
-        let store = ProfileStore::open(dir.file());
+        fs::write(dir.join(FILE_NAME), v2).unwrap();
+        let store = ProfileStore::open(dir.join(FILE_NAME));
         assert!(store.list().read_only.is_none());
         assert_eq!(store.list().active_id, Some(3));
         assert_eq!(store.get(3).unwrap().lighting.direction, 1);
@@ -361,7 +318,7 @@ mod tests {
     #[test]
     fn a_change_that_changes_nothing_is_not_saved() {
         let dir = TempDir::new("no-op");
-        let mut store = ProfileStore::open(dir.file());
+        let mut store = ProfileStore::open(dir.join(FILE_NAME));
         store.set_active(1).unwrap();
         let revision = store.revision();
         store.set_active(1).unwrap();
@@ -373,17 +330,17 @@ mod tests {
     #[test]
     fn a_read_only_store_says_so_before_any_work() {
         let dir = TempDir::new("check-writable");
-        fs::write(dir.file(), r#"{"schemaVersion": 99, "nextId": 2, "profiles": []}"#).unwrap();
-        assert!(matches!(ProfileStore::open(dir.file()).check_writable(), Err(ProfileError::ReadOnly(_))));
+        fs::write(dir.join(FILE_NAME), r#"{"schemaVersion": 99, "nextId": 2, "profiles": []}"#).unwrap();
+        assert!(matches!(ProfileStore::open(dir.join(FILE_NAME)).check_writable(), Err(ProfileError::ReadOnly(_))));
     }
 
     #[test]
     fn the_active_profile_is_saved_and_cannot_be_deleted() {
         let dir = TempDir::new("active");
-        let mut store = ProfileStore::open(dir.file());
+        let mut store = ProfileStore::open(dir.join(FILE_NAME));
         let gaming = store.create("Gaming", None).unwrap();
         store.set_active(gaming.id).unwrap();
-        assert_eq!(ProfileStore::open(dir.file()).list().active_id, Some(gaming.id));
+        assert_eq!(ProfileStore::open(dir.join(FILE_NAME)).list().active_id, Some(gaming.id));
         assert!(store.set_active(99).is_err(), "unknown profile");
         assert!(matches!(store.delete(gaming.id), Err(ProfileError::InUse)));
         store.set_active(1).unwrap();
@@ -394,7 +351,7 @@ mod tests {
     #[test]
     fn copies_get_free_names_that_always_fit() {
         let dir = TempDir::new("copy-names");
-        let mut store = ProfileStore::open(dir.file());
+        let mut store = ProfileStore::open(dir.join(FILE_NAME));
         assert_eq!(store.duplicate(1).unwrap().name, "Default copy");
         assert_eq!(store.duplicate(1).unwrap().name, "Default copy 2");
         for (length, letter) in (34..=MAX_NAME_LEN).zip('a'..) {
@@ -410,7 +367,7 @@ mod tests {
     #[test]
     fn ids_are_never_reused() {
         let dir = TempDir::new("ids");
-        let mut store = ProfileStore::open(dir.file());
+        let mut store = ProfileStore::open(dir.join(FILE_NAME));
         let a = store.create("A", None).unwrap();
         store.delete(a.id).unwrap();
         let b = store.create("B", None).unwrap();
@@ -420,7 +377,7 @@ mod tests {
     #[test]
     fn a_copy_keeps_settings_but_not_linked_programs() {
         let dir = TempDir::new("copy");
-        let mut store = ProfileStore::open(dir.file());
+        let mut store = ProfileStore::open(dir.join(FILE_NAME));
         let mut source = store.get(1).unwrap().clone();
         source.polling_rate_hz = 8000;
         source.onboard_slot = 2;
@@ -436,9 +393,9 @@ mod tests {
     #[test]
     fn create_with_saves_the_adjusted_profile_once() {
         let dir = TempDir::new("create-with");
-        let mut store = ProfileStore::open(dir.file());
+        let mut store = ProfileStore::open(dir.join(FILE_NAME));
         let created = store.create_with("Read", |p| p.onboard_slot = 2).unwrap();
-        assert_eq!(ProfileStore::open(dir.file()).get(created.id).unwrap().onboard_slot, 2);
+        assert_eq!(ProfileStore::open(dir.join(FILE_NAME)).get(created.id).unwrap().onboard_slot, 2);
         assert!(store.create_with("Bad", |p| p.onboard_slot = 9).is_err());
         assert_eq!(store.profiles().len(), 2);
     }
@@ -446,7 +403,7 @@ mod tests {
     #[test]
     fn the_last_profile_cannot_be_deleted() {
         let dir = TempDir::new("last");
-        let mut store = ProfileStore::open(dir.file());
+        let mut store = ProfileStore::open(dir.join(FILE_NAME));
         assert!(matches!(store.delete(1), Err(ProfileError::LastProfile)));
         assert_eq!(store.profiles().len(), 1);
     }
@@ -454,21 +411,21 @@ mod tests {
     #[test]
     fn invalid_changes_are_rejected_and_nothing_is_saved() {
         let dir = TempDir::new("invalid");
-        let mut store = ProfileStore::open(dir.file());
+        let mut store = ProfileStore::open(dir.join(FILE_NAME));
         assert!(matches!(store.create("default", None), Err(ProfileError::NameTaken(_))));
         let mut bad = store.get(1).unwrap().clone();
         bad.polling_rate_hz = 3000;
         assert!(store.update(bad).is_err());
         assert!(matches!(store.rename(99, "X"), Err(ProfileError::NotFound)));
-        let reopened = ProfileStore::open(dir.file());
+        let reopened = ProfileStore::open(dir.join(FILE_NAME));
         assert_eq!(reopened.profiles(), ProfileFile::fresh().profiles.as_slice());
     }
 
     #[test]
     fn damaged_file_is_backed_up_and_replaced() {
         let dir = TempDir::new("damaged");
-        fs::write(dir.file(), "{ not json").unwrap();
-        let store = ProfileStore::open(dir.file());
+        fs::write(dir.join(FILE_NAME), "{ not json").unwrap();
+        let store = ProfileStore::open(dir.join(FILE_NAME));
         assert_eq!(store.profiles().len(), 1);
         assert!(store.list().read_only.is_none());
         let backups = fs::read_dir(&dir.0)
@@ -484,28 +441,28 @@ mod tests {
         let saved = r##"{"schemaVersion": 1, "nextId": 2, "profiles": [
           { "id": 1, "name": "Default", "onboardSlot": 0, "pollingRateHz": 3000,
             "lighting": { "mode": 16, "brightness": 4, "speed": 2, "direction": 0, "rainbow": true, "color": "#FFFFFF" } } ]}"##;
-        fs::write(dir.file(), saved).unwrap();
-        let mut store = ProfileStore::open(dir.file());
+        fs::write(dir.join(FILE_NAME), saved).unwrap();
+        let mut store = ProfileStore::open(dir.join(FILE_NAME));
         assert!(store.list().read_only.is_some());
         assert!(matches!(store.create("X", None), Err(ProfileError::ReadOnly(_))));
-        assert_eq!(fs::read_to_string(dir.file()).unwrap(), saved);
+        assert_eq!(fs::read_to_string(dir.join(FILE_NAME)).unwrap(), saved);
     }
 
     #[test]
     fn a_wrong_shaped_file_opens_read_only_and_is_kept() {
         let dir = TempDir::new("shape");
         let saved = r#"{"schemaVersion": 1, "nextId": "two", "profiles": []}"#;
-        fs::write(dir.file(), saved).unwrap();
-        let store = ProfileStore::open(dir.file());
+        fs::write(dir.join(FILE_NAME), saved).unwrap();
+        let store = ProfileStore::open(dir.join(FILE_NAME));
         assert!(store.list().read_only.is_some());
-        assert_eq!(fs::read_to_string(dir.file()).unwrap(), saved);
+        assert_eq!(fs::read_to_string(dir.join(FILE_NAME)).unwrap(), saved);
     }
 
     #[test]
     fn bytes_that_are_not_text_count_as_damage() {
         let dir = TempDir::new("bytes");
-        fs::write(dir.file(), [0xFF, 0xFE, 0x00, 0x7B]).unwrap();
-        let store = ProfileStore::open(dir.file());
+        fs::write(dir.join(FILE_NAME), [0xFF, 0xFE, 0x00, 0x7B]).unwrap();
+        let store = ProfileStore::open(dir.join(FILE_NAME));
         assert!(store.list().read_only.is_none());
         assert_eq!(store.profiles().len(), 1);
     }
@@ -514,10 +471,10 @@ mod tests {
     fn newer_format_is_left_untouched() {
         let dir = TempDir::new("newer");
         let newer = r#"{"schemaVersion": 99, "nextId": 5, "profiles": []}"#;
-        fs::write(dir.file(), newer).unwrap();
-        let mut store = ProfileStore::open(dir.file());
+        fs::write(dir.join(FILE_NAME), newer).unwrap();
+        let mut store = ProfileStore::open(dir.join(FILE_NAME));
         assert!(store.list().read_only.is_some());
         assert!(store.create("X", None).is_err(), "read-only");
-        assert_eq!(fs::read_to_string(dir.file()).unwrap(), newer);
+        assert_eq!(fs::read_to_string(dir.join(FILE_NAME)).unwrap(), newer);
     }
 }

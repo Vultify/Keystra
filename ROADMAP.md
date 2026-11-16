@@ -93,8 +93,8 @@ Decided 2026-11-15: per-key colors only before 1.0. The other extra settings mov
 
 ## Phase 8: Release
 
-- [ ] Run `/project-audit deep`
-- [ ] Windows installer
+- [x] Full pre-release audit (all findings fixed)
+- [ ] Windows installer, built only with `npm run release` (it keeps the Windows user name out of the app)
 - [ ] Version 1.0.0 in `package.json` and `src-tauri/Cargo.toml` (the installer reads it from `package.json`), and a CHANGELOG in Keep a Changelog format
 - [ ] Make the repo public
 
