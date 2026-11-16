@@ -46,7 +46,7 @@ export function KeyboardNotice({ status, showHelper = false }: { status: Keyboar
         <RefreshCwIcon />
         <AlertTitle>The keyboard stopped answering</AlertTitle>
         <AlertDescription>
-          It failed over USB a few times in a row, so Keystra is waiting {status.seconds} seconds before trying again.
+          It failed over USB a few times in a row, so Keystra will try again within {status.seconds} seconds.
           If it keeps happening, try another USB port or cable.
         </AlertDescription>
       </Alert>

@@ -46,7 +46,7 @@ The first release.
 - Closing the window keeps Keystra running in the tray, and the hidden window stops drawing so it uses almost no power.
 - Opening Keystra while it's already running brings the running window to the front instead of starting a second copy.
 - Settings page with an option to start Keystra with Windows, off by default. It starts in the tray, and only your own Windows account is changed.
-- Keystra notices the keyboard being plugged in or pulled out the moment Windows does. After a USB error it looks for the keyboard again right away, and waits longer each time if the errors keep coming.
+- Keystra notices the keyboard being plugged in or pulled out the moment Windows does. After a USB error it looks for the keyboard again right away. If the errors keep coming, it waits longer each time and says so on every page.
 - Custom per-key colors: on the Lighting page's Custom effect, click keys on the keyboard picture to select them, pick a color, and Save pattern writes one of the keyboard's 5 patterns, confirmed by reading it back. Saving a pattern the keyboard already holds writes nothing. The picture shows the keyboard's real saved patterns.
 - A copy of all 5 patterns is kept on this PC, read once when the keyboard connects. If a pattern changed elsewhere, Keystra offers to put its copy back or keep the keyboard's version.
 - The keyboard picture plays a looping example of each effect (sweeps, rings, key presses, twinkles, falling light), following its color, speed and direction. It pauses when minimized or scrolled out of view, and shows a still moment of the effect when Windows animations are turned off.

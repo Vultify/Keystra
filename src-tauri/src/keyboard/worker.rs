@@ -69,7 +69,10 @@ pub enum KeyboardStatus {
     /// A development build is leaving the keyboard to the installed Keystra, which is running.
     InstalledRunning,
     /// The keyboard kept failing over USB; Keystra tries again after `seconds`.
-    Retrying { seconds: u32 },
+    Retrying {
+        #[cfg_attr(test, ts(type = "number"))]
+        seconds: u64,
+    },
 }
 
 enum Job {
@@ -608,7 +611,7 @@ impl Worker {
             match self.skips.record_drop(path, Instant::now()) {
                 Some(delay) => {
                     log::warn!("the keyboard keeps failing, waiting {}s before trying again", delay.as_secs());
-                    self.set_status(KeyboardStatus::Retrying { seconds: u32::try_from(delay.as_secs()).unwrap_or(u32::MAX) });
+                    self.set_status(KeyboardStatus::Retrying { seconds: delay.as_secs() });
                 }
                 None => self.set_status(KeyboardStatus::Disconnected),
             }
@@ -696,6 +699,10 @@ mod tests {
         let info = DeviceInfo { device_id: 2494, firmware_version: 0x0321, model: Some("MX 8.2 Pro TMR") };
         let json = serde_json::to_value(KeyboardStatus::Connected { info, magcrate: MagCrateState::Closed }).unwrap();
         assert_eq!(json["state"], "connected");
+        let json = serde_json::to_value(KeyboardStatus::Retrying { seconds: 5 }).unwrap();
+        assert_eq!(json, serde_json::json!({ "state": "retrying", "seconds": 5 }));
+        let json = serde_json::to_value(KeyboardStatus::InstalledRunning).unwrap();
+        assert_eq!(json, serde_json::json!({ "state": "installedRunning" }));
     }
 
     fn path(s: &str) -> CString {
