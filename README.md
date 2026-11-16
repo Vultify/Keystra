@@ -20,6 +20,12 @@ Version 1.0.0. Keystra finds the keyboard over USB and has its real screens: Lig
 2. Run it. Windows may show "Windows protected your PC", because the installer isn't code-signed. Click **More info**, then **Run anyway**.
 3. Plug in your MX 8.2 Pro TMR with the USB cable and open Keystra. Wireless isn't supported yet.
 
+Or install it from PowerShell. This downloads the same installer and runs it silently:
+
+```powershell
+irm https://github.com/Vultify/Keystra/releases/download/v1.0.0/Keystra_1.0.0_x64-setup.exe -OutFile "$env:TEMP\keystra-setup.exe"; & "$env:TEMP\keystra-setup.exe" /S
+```
+
 Keystra installs for your Windows account only and needs no administrator rights. It runs on Windows 10 and 11. Keystra's window uses Microsoft Edge WebView2, which comes with Windows 11; on Windows 10 the installer downloads it if it's missing, so it needs an internet connection the first time. Close MagCrate while you use Keystra, since the two share the keyboard's connection.
 
 ## Planned features
